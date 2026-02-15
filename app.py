@@ -118,13 +118,16 @@ def call_openrouter(messages, model=REASONING_MODEL):
     payload = {"model": model, "messages": messages}
     try:
         response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        data = response.json()
+        try:
+            data = response.json()
+        except requests.exceptions.JSONDecodeError:
+            return f"API returned non-JSON response (Status {response.status_code}): {response.text[:200]}"
+
         if "choices" in data:
             return data["choices"][0]["message"]["content"]
         if "error" in data:
             err_msg = data["error"].get("message", "Unknown error")
             if "401" in str(data) or "User not found" in err_msg:
-                # Fallback if the user's selected model fails due to account/credits issue
                 return f"Model Error (401): {err_msg}. Please check if the model {model} is available/free for your account."
             return f"API Error: {err_msg}"
         return f"Unexpected response format: {data}"
@@ -177,7 +180,10 @@ def run_reasoning_model(image_bytes, species_info):
     }
 
     response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-    result = response.json()
+    try:
+        result = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return {"error": f"API returned non-JSON response (Status {response.status_code})", "raw_response_text": response.text[:500]}
 
     if "choices" not in result:
         err_msg = "Unknown error"
