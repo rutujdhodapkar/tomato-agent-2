@@ -2,70 +2,48 @@ import base64
 import io
 import json
 import os
-import time
 from datetime import datetime
 
 import requests
 import streamlit as st
+from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
 from PIL import Image
 
 # ================= CONFIG ================= #
-
-OPENROUTER_API_KEY = "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"
+# API key intentionally kept in-code per requirement.
+OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-
 VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
 REASONING_MODEL = "deepseek/deepseek-r1-0528:free"
-
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
 
-# ================= API ================= #
-
-
-def call_openrouter(messages, model):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {"model": model, "messages": messages}
-    try:
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        result = response.json()
-        if "choices" in result:
-            return result["choices"][0]["message"]["content"]
-        return str(result)
-    except Exception as err:
-        return f"Agent API error: {err}"
-
-
-# ================= TRANSLATIONS ================= #
-
-translations = {
+# ================= LANGUAGE / FONT ================= #
+TRANSLATIONS = {
     "English": {
         "home": "Home",
         "chat": "Chat",
         "shops": "Shop",
         "doctors": "Doctors",
-        "contact": "Contact Us",
+        "contact": "Contact",
         "login": "Login",
         "username": "Username",
         "password": "Password",
         "upload": "Upload Leaf Image",
-        "analyze": "Analyze Crop",
+        "analyze": "Analyze",
     },
     "Hindi": {
         "home": "होम",
         "chat": "चैट",
         "shops": "दुकान",
         "doctors": "डॉक्टर्स",
-        "contact": "संपर्क करें",
+        "contact": "संपर्क",
         "login": "लॉगिन",
-        "username": "उपयोगकर्ता नाम",
+        "username": "यूज़रनेम",
         "password": "पासवर्ड",
         "upload": "पत्ता अपलोड करें",
-        "analyze": "विश्लेषण करें",
+        "analyze": "विश्लेषण",
     },
     "Marathi": {
         "home": "मुख्यपृष्ठ",
@@ -77,234 +55,137 @@ translations = {
         "username": "वापरकर्ता नाव",
         "password": "पासवर्ड",
         "upload": "पान अपलोड करा",
-        "analyze": "विश्लेषण करा",
+        "analyze": "विश्लेषण",
     },
 }
-
-FONT_BY_LANGUAGE = {
+FONT_MAP = {
     "English": "Arial, sans-serif",
-    "Hindi": "'Noto Sans Devanagari', sans-serif",
-    "Marathi": "'Noto Sans Devanagari', sans-serif",
+    "Hindi": "'Nirmala UI', 'Mangal', sans-serif",
+    "Marathi": "'Noto Sans Devanagari', 'Mangal', sans-serif",
 }
 
-# ================= AGENT MODULES ================= #
 
-AGENT_MODULES = {
-    "Soil moisture modeling": "Estimate soil moisture trend from crop type, weather, and field signals.",
-    "Water requirement prediction": "Predict daily and weekly irrigation water requirement.",
-    "AI-driven irrigation schedule": "Generate optimal irrigation timing for next 7 days.",
-    "Drought early warning": "Detect drought risk in upcoming 10 days and suggest safeguards.",
-    "Water waste optimization %": "Estimate avoidable water waste and optimization percentage.",
-    "NPK prediction": "Predict nitrogen, phosphorus, and potassium levels in current soil profile.",
-    "pH imbalance detection": "Detect soil pH imbalance and likely causes.",
-    "Nutrient deficiency fusion": "Use leaf + soil fusion logic to identify nutrient deficiency.",
-    "Fertilizer recommendation engine": "Recommend fertilizer type, dose, and schedule.",
-    "Long-term soil health score": "Compute seasonal soil health score with repair plan.",
-    "Insect classification": "Identify likely pest class from symptoms and climate.",
-    "Pest density estimation": "Estimate pest density and severity zones.",
-    "Swarm detection": "Predict probability of swarm behavior and urgency.",
-    "Migration pattern prediction": "Model wind-based pest migration pattern.",
-    "Smart pesticide timing": "Suggest safe and efficient pesticide timing.",
-    "Satellite imagery integration": "Integrate satellite cues for crop vigor and stress.",
-    "Growth stage tracking": "Track crop growth stage and current milestone.",
-    "Production estimate per acre": "Estimate expected production per acre.",
-    "Profit forecast": "Forecast expected margin based on cost and yield.",
-    "Market price integration": "Blend local market trends into selling strategy.",
-    "Camera→Analyze→Recommend→Auto-execute": "Create vision-to-action workflow for farm operations.",
-    "Irrigation valve control": "Generate smart valve control strategy.",
-    "Sprayer control": "Generate precision sprayer control plan.",
-    "Drone-based spraying": "Create drone route and spray planning logic.",
-    "Automated farm reporting": "Build automated periodic farm status report.",
-    "Multi-modal fusion model": "Fuse Vision + Weather + Soil + Time for better decision confidence.",
-    "7–30 day disease risk prediction": "Predict medium-term disease risk from humidity and temperature.",
-    "Frost risk alerts": "Detect frost alert windows and mitigation actions.",
-    "Heat stress prediction": "Forecast heat stress and adaptive planning.",
-    "Wind-based pest migration modeling": "Analyze wind direction impact on pest movement.",
-    "Crop growth stage mapping": "Map field status to growth stages.",
-    "Price prediction AI": "Estimate total crop cost vs local market selling gain.",
-    "Full Agent Pipeline": "Run Vision, Climate, Soil, Water, Market, Execution layers in one pipeline.",
-}
+def call_openrouter(messages, model=REASONING_MODEL):
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {"model": model, "messages": messages}
+    try:
+        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+        data = response.json()
+        if "choices" in data:
+            return data["choices"][0]["message"]["content"]
+        return f"Model response: {data}"
+    except Exception as exc:
+        return f"Service unavailable, fallback used. Error: {exc}"
 
 
 def ensure_session_defaults():
     defaults = {
         "language": "English",
-        "logged_in": False,
-        "chat_history": [],
-        "agent_jobs": [],
-        "agent_reports": [],
-        "current_agent_action": "Idle",
         "theme": "Light",
-        "settings_open": False,
-        "settings_inner_open": False,
+        "logged_in": False,
+        "username": "",
+        "photo_url": "https://api.dicebear.com/8.x/adventurer/png?seed=Farmer",
+        "agent_status": "Idle",
+        "task_queue": [],
+        "reports": [],
+        "chat_history": [],
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
-def apply_language_font(language):
-    font_family = FONT_BY_LANGUAGE.get(language, "Arial, sans-serif")
+def apply_local_font(language):
+    font_family = FONT_MAP.get(language, FONT_MAP["English"])
     st.markdown(
         f"""
         <style>
-        html, body, [class*="css"]  {{
-            font-family: {font_family};
-        }}
+            html, body, [class*="css"], .stApp {{
+                font-family: {font_family};
+            }}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-def enqueue_agent_job(title, context_text=""):
-    st.session_state.agent_jobs.append(
-        {
-            "title": title,
-            "context": context_text,
-            "status": "queued",
-            "created_at": time.time(),
-            "started_at": None,
-        }
-    )
+def queue_task(task_name, prompt, model=REASONING_MODEL):
+    st.session_state.task_queue.append({"task": task_name, "prompt": prompt, "model": model})
 
 
-def run_next_job_if_needed():
-    running = [j for j in st.session_state.agent_jobs if j["status"] == "running"]
-    if running:
+def run_background_task_once():
+    if not st.session_state.task_queue:
+        if st.session_state.agent_status != "Idle":
+            st.session_state.agent_status = "Idle"
         return
 
-    queued = [j for j in st.session_state.agent_jobs if j["status"] == "queued"]
-    if queued:
-        next_job = queued[0]
-        next_job["status"] = "running"
-        next_job["started_at"] = time.time()
-        st.session_state.current_agent_action = f"Running: {next_job['title']}"
-
-
-def build_agent_prompt(job_title, job_context):
-    return [
+    task = st.session_state.task_queue.pop(0)
+    st.session_state.agent_status = f"Running: {task['task']}"
+    report = call_openrouter(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You are an agricultural super-agent. Give practical steps, risk score, "
+                    "timeline, and clear recommendation bullets."
+                ),
+            },
+            {"role": "user", "content": task["prompt"]},
+        ],
+        task["model"],
+    )
+    st.session_state.reports.insert(
+        0,
         {
-            "role": "system",
-            "content": (
-                "You are an advanced agriculture AI agent with layers: Vision, Climate, Soil, Water, Market, "
-                "Execution. Provide concise but actionable farming report with clear headings."
-            ),
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "title": task["task"],
+            "content": report,
         },
-        {
-            "role": "user",
-            "content": (
-                f"Task: {job_title}\n"
-                f"Focus: {AGENT_MODULES.get(job_title, '')}\n"
-                f"Context: {job_context or 'No extra context provided by user.'}\n"
-                "Include risk score, recommendation, and expected benefit."
-            ),
-        },
-    ]
+    )
+    st.session_state.agent_status = f"Completed: {task['task']}"
 
 
-def process_background_jobs():
-    run_next_job_if_needed()
-    for job in st.session_state.agent_jobs:
-        if job["status"] == "running" and job["started_at"] and (time.time() - job["started_at"] > 0.3):
-            report = call_openrouter(build_agent_prompt(job["title"], job["context"]), REASONING_MODEL)
-            job["status"] = "completed"
-            st.session_state.agent_reports.insert(
-                0,
-                {
-                    "title": job["title"],
-                    "report": report,
-                    "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                },
-            )
-            st.session_state.current_agent_action = f"Completed: {job['title']}"
-            break
-    if not any(j["status"] == "running" for j in st.session_state.agent_jobs):
-        run_next_job_if_needed()
-        if not any(j["status"] == "running" for j in st.session_state.agent_jobs):
-            st.session_state.current_agent_action = "Idle"
-
-
-def _escape_pdf_text(text):
-    return text.replace("\\", "\\\\").replace("(", "\(").replace(")", "\)")
-
-
-def _write_simple_pdf(path, lines):
-    content_cmds = ["BT", "/F1 12 Tf", "50 800 Td"]
-    first = True
-    for raw in lines:
-        line = _escape_pdf_text(raw[:140])
-        if first:
-            content_cmds.append(f"({line}) Tj")
-            first = False
-        else:
-            content_cmds.append("0 -16 Td")
-            content_cmds.append(f"({line}) Tj")
-    content_cmds.append("ET")
-    stream = "\n".join(content_cmds).encode("latin-1", errors="replace")
-
-    objects = []
-    objects.append(b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n")
-    objects.append(b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n")
-    objects.append(b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n")
-    objects.append(b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n")
-    objects.append((f"5 0 obj << /Length {len(stream)} >> stream\n").encode("latin-1") + stream + b"\nendstream endobj\n")
-
-    pdf = bytearray(b"%PDF-1.4\n")
-    xref = [0]
-    for obj in objects:
-        xref.append(len(pdf))
-        pdf.extend(obj)
-
-    xref_start = len(pdf)
-    pdf.extend(f"xref\n0 {len(xref)}\n".encode("latin-1"))
-    pdf.extend(b"0000000000 65535 f \n")
-    for offset in xref[1:]:
-        pdf.extend(f"{offset:010d} 00000 n \n".encode("latin-1"))
-
-    trailer = f"trailer\n<< /Size {len(xref)} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF"
-    pdf.extend(trailer.encode("latin-1"))
-
-    with open(path, "wb") as f:
-        f.write(pdf)
-
-
-def export_chat_to_pdf(username):
+def export_chat_to_pdf():
     os.makedirs(EXPORT_DIR, exist_ok=True)
-    path = os.path.join(EXPORT_DIR, f"chat_export_{username}_{int(time.time())}.pdf")
+    path = os.path.join(EXPORT_DIR, f"chat_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
 
-    lines = [f"Farm AI Chat Export - {username}", ""]
-    if not st.session_state.chat_history:
-        lines.append("No chat history available.")
-    else:
-        for item in st.session_state.chat_history:
-            lines.append(f"User: {item['user']}")
-            lines.append(f"AI: {item['assistant']}")
-            lines.append("")
+    lines = ["AI Agent Chat Export", ""]
+    for msg in st.session_state.chat_history:
+        lines.append(f"[{msg['time']}] {msg['role'].upper()}: {msg['text']}")
 
-    _write_simple_pdf(path, lines)
+    page_lines = 35
+    with PdfPages(path) as pdf:
+        for i in range(0, max(len(lines), 1), page_lines):
+            fig = plt.figure(figsize=(8.27, 11.69))
+            fig.patch.set_facecolor('white')
+            text_chunk = "\n".join(lines[i:i + page_lines]) or "No chat messages to export."
+            fig.text(0.05, 0.95, text_chunk, va='top', fontsize=9, family='sans-serif', wrap=True)
+            plt.axis('off')
+            pdf.savefig(fig)
+            plt.close(fig)
+
     return path
 
 
-# ================= APP ================= #
+def login_block(lang_text):
+    if not os.path.exists(USER_DB):
+        with open(USER_DB, "w", encoding="utf-8") as file:
+            json.dump({}, file)
 
-ensure_session_defaults()
+    with open(USER_DB, "r", encoding="utf-8") as file:
+        users = json.load(file)
 
-if not os.path.exists(USER_DB):
-    with open(USER_DB, "w", encoding="utf-8") as f:
-        json.dump({}, f)
+    if st.session_state.logged_in:
+        return
 
-with open(USER_DB, "r", encoding="utf-8") as f:
-    users = json.load(f)
+    st.title(lang_text["login"])
+    username = st.text_input(lang_text["username"])
+    password = st.text_input(lang_text["password"], type="password")
 
-apply_language_font(st.session_state.language)
-
-if not st.session_state.logged_in:
-    st.title(translations[st.session_state.language]["login"])
-    username = st.text_input(translations[st.session_state.language]["username"])
-    password = st.text_input(translations[st.session_state.language]["password"], type="password")
-
-    if st.button("Login"):
+    if st.button("Continue"):
         if username in users and users[username] == password:
             st.session_state.logged_in = True
             st.session_state.username = username
@@ -312,213 +193,231 @@ if not st.session_state.logged_in:
             st.rerun()
         else:
             users[username] = password
-            with open(USER_DB, "w", encoding="utf-8") as f:
-                json.dump(users, f)
+            with open(USER_DB, "w", encoding="utf-8") as file:
+                json.dump(users, file)
             st.session_state.logged_in = True
             st.session_state.username = username
             st.success("Account created")
             st.rerun()
     st.stop()
 
-process_background_jobs()
 
-# ================= SIDEBAR (LEFT PANEL) ================= #
+def sidebar_controls(lang_text):
+    with st.sidebar:
+        st.title("🤖 Agent Control Panel")
 
-with st.sidebar:
-    st.subheader("🌍 Language")
-    selected_lang = st.selectbox("Select", ["English", "Hindi", "Marathi"], index=["English", "Hindi", "Marathi"].index(st.session_state.language))
-    if selected_lang != st.session_state.language:
-        st.session_state.language = selected_lang
-        st.rerun()
+        st.session_state.language = st.selectbox("Language", list(TRANSLATIONS.keys()), index=list(TRANSLATIONS.keys()).index(st.session_state.language))
+        st.session_state.theme = st.selectbox("Theme", ["Light", "Dark"])
 
-    st.markdown("---")
-    st.subheader("🤖 Agent Controls")
-    quick_context = st.text_area("Context for analysis", placeholder="Crop, location, issue...")
+        st.markdown("---")
+        st.subheader("Quick Agent Actions")
 
-    if st.button("Run Analysis"):
-        enqueue_agent_job("Full Agent Pipeline", quick_context)
+        action_map = {
+            "Soil moisture modeling": "Analyze soil moisture modeling with sensor + weather assumptions and actionable irrigation guidance.",
+            "Water requirement prediction": "Predict farm water requirement for next 14 days by crop stage and weather uncertainty.",
+            "AI-driven irrigation schedule": "Create AI-driven irrigation schedule with time windows and liters/acre.",
+            "Drought early warning": "Generate drought early warning indicators for 30 days.",
+            "Water waste optimization %": "Estimate current water waste percentage and optimization opportunities.",
+            "NPK prediction": "Predict nitrogen, phosphorus, potassium levels and corrective plan.",
+            "pH imbalance detection": "Detect pH imbalance and recommend treatment protocol.",
+            "Nutrient deficiency fusion": "Use leaf + soil fusion assumptions to identify nutrient deficiencies.",
+            "Fertilizer recommendation": "Build fertilizer recommendation engine output for this farm.",
+            "Long-term soil health score": "Estimate long-term soil health score and yearly action plan.",
+            "Insect classification": "Classify likely insects and risk level by season.",
+            "Pest density estimation": "Estimate pest density per acre with intervention threshold.",
+            "Swarm detection": "Detect swarm risk and alert plan.",
+            "Migration pattern prediction": "Predict wind-based pest migration pattern over 7 days.",
+            "Smart pesticide timing": "Recommend ideal pesticide application timing.",
+            "Satellite imagery integration": "Provide satellite imagery integration plan and inferred crop signals.",
+            "Growth stage tracking": "Track crop growth stage and next milestones.",
+            "Production estimate per acre": "Estimate production per acre with confidence range.",
+            "Profit forecast": "Generate profit forecast using yield, costs, and market price assumptions.",
+            "Market price integration": "Integrate market price trend and suggest sell timing.",
+            "Camera→Analyze→Recommend→Auto-execute": "Design camera-to-execution pipeline with automation gates.",
+            "Irrigation valve control": "Generate irrigation valve control logic and failsafe.",
+            "Sprayer control": "Generate smart sprayer control strategy.",
+            "Drone-based spraying": "Plan drone-based spraying route and timing.",
+            "Automated farm reporting": "Create automated farm reporting template and KPI plan.",
+            "Multi-modal fusion model": "Design fusion model: Vision + Weather + Soil + Time.",
+            "Disease risk 7-30 days": "Predict disease risk for 7-30 days using humidity + temperature.",
+            "Frost risk alerts": "Predict frost risk and preventive actions.",
+            "Heat stress prediction": "Predict heat stress windows and protection actions.",
+            "Crop growth stage mapping": "Generate crop growth stage map from multimodal data.",
+            "Price prediction AI": "Calculate total crop production cost and expected local market gain/profit.",
+            "Full Agent Pipeline": "Build one proper end-to-end AI agent pipeline using Vision/Climate/Soil/Water/Market/Execution layers.",
+        }
 
-    for module_name in AGENT_MODULES:
-        if st.button(module_name, key=f"btn_{module_name}"):
-            enqueue_agent_job(module_name, quick_context)
+        selected_action = st.selectbox("Select analysis", list(action_map.keys()))
+        if st.button("Run analysis"):
+            queue_task(selected_action, action_map[selected_action])
+            st.success(f"Queued: {selected_action}")
 
-    st.markdown("---")
-    st.subheader("📄 Generated Reports")
-    if not st.session_state.agent_reports:
-        st.caption("No report yet.")
-    else:
-        for idx, rep in enumerate(st.session_state.agent_reports[:12]):
-            with st.expander(f"{rep['title']} ({rep['created']})", expanded=idx == 0):
-                st.write(rep["report"])
+        if st.button("Run all core layers"):
+            for layer_task in [
+                "Vision Layer", "Climate Layer", "Soil Layer", "Water Layer", "Market Layer", "Execution Layer"
+            ]:
+                queue_task(layer_task, f"Generate operational report for {layer_task} with metrics and actions.")
+            st.success("All layer analyses queued.")
 
-    if st.button("Export Chat to PDF"):
-        output_path = export_chat_to_pdf(st.session_state.get("username", "user"))
-        st.success(f"PDF saved: {output_path}")
+        st.markdown("---")
+        st.subheader("Chat Export")
+        if st.button("Export chat as PDF"):
+            pdf_path = export_chat_to_pdf()
+            st.success(f"Saved: {pdf_path}")
 
-    st.markdown("---")
-    st.subheader("👤 User")
-    uname = st.session_state.get("username", "user")
-    st.image(f"https://api.dicebear.com/7.x/initials/png?seed={uname}", width=72)
-    st.write(uname)
+        st.markdown("---")
+        st.subheader("User")
+        st.image(st.session_state.photo_url, width=70)
+        st.write(st.session_state.username)
 
-    if st.button("Open profile box"):
-        st.session_state.settings_open = not st.session_state.settings_open
+        with st.expander("Profile menu"):
+            if st.button("Settings"):
+                st.info("Theme / Logout / More available below")
+            st.write("• Theme")
+            st.write("• Logout")
+            st.write("• More")
+            if st.button("Logout"):
+                st.session_state.logged_in = False
+                st.rerun()
 
-    if st.session_state.settings_open:
-        st.info("Profile actions")
-        if st.button("Settings"):
-            st.session_state.settings_inner_open = not st.session_state.settings_inner_open
 
-    if st.session_state.settings_inner_open:
-        st.selectbox("Theme", ["Light", "Dark", "Green"], key="theme")
-        st.button("More")
-        if st.button("Logout"):
-            st.session_state.logged_in = False
-            st.rerun()
-
-lang_text = translations[st.session_state.language]
-
-st.title("🌾 AI Farm Agent")
-st.caption(f"Agent status: {st.session_state.current_agent_action}")
-
-menu = st.radio(
-    "",
-    [lang_text["home"], lang_text["chat"], lang_text["shops"], lang_text["doctors"], lang_text["contact"]],
-    horizontal=True,
-)
-
-if menu == lang_text["home"]:
-    st.header("Vision + Multi-Modal Crop Analysis")
-    location = st.text_input("Farm Location")
+def home_page(lang_text):
+    st.title("🌾 Agricultural Super AI Agent")
+    location = st.text_input("Farm location")
     uploaded_image = st.file_uploader(lang_text["upload"], type=["jpg", "jpeg", "png"])
 
     if st.button(lang_text["analyze"]):
         if not uploaded_image:
-            st.error("Upload image first.")
-        else:
-            image = Image.open(uploaded_image)
-            st.image(image, caption="Uploaded leaf")
-            buffer = io.BytesIO()
-            image.save(buffer, format="JPEG")
-            image_base64 = base64.b64encode(buffer.getvalue()).decode()
+            st.error("Upload an image first.")
+            return
+        image = Image.open(uploaded_image)
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG")
+        image_base64 = base64.b64encode(buffer.getvalue()).decode()
 
-            desc = call_openrouter(
-                [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Describe this leaf in detail and mention visible stress signs."},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
-                        ],
-                    }
-                ],
-                VISION_MODEL,
-            )
-
-            fusion_report = call_openrouter(
-                [
-                    {"role": "system", "content": "Use multi-modal fusion model (Vision + Weather + Soil + Time)."},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Leaf vision summary: {desc}\n"
-                            f"Location: {location}\n"
-                            "Provide disease risk, growth stage mapping, and recommended next actions."
-                        ),
-                    },
-                ],
-                REASONING_MODEL,
-            )
-            st.subheader("Analysis result")
-            st.write(fusion_report)
-
-elif menu == lang_text["chat"]:
-    st.header("💬 Agricultural AI Chat")
-    user_query = st.text_input("Ask anything about your farm")
-    if st.button("Send") and user_query.strip():
-        response = call_openrouter(
-            [
-                {"role": "system", "content": "You are an agricultural assistant AI agent."},
-                {"role": "user", "content": user_query},
-            ],
-            REASONING_MODEL,
+        queue_task(
+            "Leaf disease analysis",
+            (
+                f"Location: {location}. Analyze uploaded crop leaf image and provide diagnosis, confidence, treatment, "
+                "and prevention plan."
+            ),
         )
-        st.session_state.chat_history.append({"user": user_query, "assistant": response})
 
-    for item in reversed(st.session_state.chat_history[-20:]):
-        st.markdown(f"**You:** {item['user']}")
-        st.markdown(f"**Agent:** {item['assistant']}")
-        st.markdown("---")
+        vision_text = call_openrouter(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Describe this crop leaf and possible stress signs."},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
+                    ],
+                }
+            ],
+            model=VISION_MODEL,
+        )
+        st.info("Vision layer summary:")
+        st.write(vision_text)
+        st.success("Leaf pipeline queued. Agent continues processing in background.")
 
-elif menu == lang_text["shops"]:
-    st.header("🛒 Fertilizer Shop")
-    crop = st.text_input("Crop name")
-    requirement = st.text_input("Requirement")
+
+def chat_page():
+    st.title("💬 Agent Chat")
+    query = st.text_input("Ask about farming, costs, irrigation, market, disease...")
+    if st.button("Send") and query.strip():
+        st.session_state.chat_history.append(
+            {"time": datetime.now().strftime("%H:%M:%S"), "role": "user", "text": query}
+        )
+        answer = call_openrouter(
+            [
+                {"role": "system", "content": "You are a practical agricultural AI agent."},
+                {"role": "user", "content": query},
+            ]
+        )
+        st.session_state.chat_history.append(
+            {"time": datetime.now().strftime("%H:%M:%S"), "role": "assistant", "text": answer}
+        )
+
+    for msg in st.session_state.chat_history[-20:]:
+        st.markdown(f"**{msg['role'].title()} ({msg['time']}):** {msg['text']}")
+
+
+def shop_or_doctors_page(title, actor):
+    st.title(title)
+    crop = st.text_input(f"{actor}: Crop name")
+    requirement = st.text_input(f"{actor}: Requirement")
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Search Products"):
-            result = call_openrouter(
-                [
-                    {"role": "system", "content": "You are fertilizer market analyst."},
-                    {
-                        "role": "user",
-                        "content": f"Find best fertilizers for crop: {crop}, need: {requirement}. Include price and why useful.",
-                    },
-                ],
-                REASONING_MODEL,
+        if st.button(f"Search {actor}"):
+            queue_task(
+                f"{actor} Search",
+                f"For crop {crop}, requirement {requirement}, provide top options with price, reason, and availability.",
             )
-            st.write(result)
-
+            st.success(f"{actor} search queued.")
     with col2:
-        if st.button("Show All"):
-            all_products = call_openrouter(
-                [
-                    {"role": "system", "content": "Provide a broad fertilizer catalog useful for Indian farming."},
-                    {"role": "user", "content": "Show all major fertilizer options with NPK and price band."},
-                ],
-                REASONING_MODEL,
+        if st.button("Show all"):
+            queue_task(
+                f"{actor} Show All",
+                f"For crop {crop}, list all major {actor.lower()} options with pricing and usage summary.",
             )
-            st.write(all_products)
+            st.success("Show-all report queued.")
 
-elif menu == lang_text["doctors"]:
-    st.header("🩺 Doctors")
-    crop = st.text_input("Crop", key="doc_crop")
-    issue = st.text_input("Issue", key="doc_issue")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Find Doctors"):
-            doc_list = call_openrouter(
-                [
-                    {"role": "system", "content": "You are agri doctor directory assistant."},
-                    {
-                        "role": "user",
-                        "content": f"Suggest agriculture experts for crop {crop} and issue {issue}. Include specialization and fee estimate.",
-                    },
-                ],
-                REASONING_MODEL,
-            )
-            st.write(doc_list)
-    with col2:
-        if st.button("Show All", key="doc_show_all"):
-            all_docs = call_openrouter(
-                [
-                    {"role": "system", "content": "You list agri doctor categories."},
-                    {"role": "user", "content": "Show all agriculture doctor categories and support areas."},
-                ],
-                REASONING_MODEL,
-            )
-            st.write(all_docs)
 
-elif menu == lang_text["contact"]:
-    st.header("📞 Contact Us")
+def contact_page():
+    st.title("📞 Contact")
     st.markdown(
         """
-        **Name:** Rutuj Dhodapkar  
-        **Email:** rutujdhodapkar@gmail.com  
-        **Username:** rutujdhodapkar  
-        **Portfolio:** https://rutujdhodapkar.vercel.app/  
-        **Specialization:** Advanced AI, Deep Learning, Machine Learning, Big Data  
-        **Location:** Los Angeles  
+        **AI Farm Agent Team**  
+        Email: support@aifarmagent.local  
+        Services: Vision, Climate, Soil, Water, Market, Execution  
         """
     )
+
+
+def show_reports_panel():
+    st.markdown("## 📊 Generated Reports")
+    if not st.session_state.reports:
+        st.info("No reports yet. Run analyses from the left panel.")
+        return
+    for report in st.session_state.reports[:12]:
+        with st.expander(f"{report['time']} — {report['title']}"):
+            st.write(report["content"])
+
+
+def main():
+    st.set_page_config(page_title="Agri Super Agent", layout="wide")
+    ensure_session_defaults()
+    apply_local_font(st.session_state.language)
+
+    lang_text = TRANSLATIONS[st.session_state.language]
+    login_block(lang_text)
+
+    sidebar_controls(lang_text)
+    apply_local_font(st.session_state.language)
+
+    run_background_task_once()
+    st.markdown(f"### 🧠 Agent Status: {st.session_state.agent_status}")
+
+    menu = st.radio(
+        "Navigation",
+        [lang_text["home"], lang_text["chat"], lang_text["shops"], lang_text["doctors"], lang_text["contact"]],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+
+    if menu == lang_text["home"]:
+        home_page(lang_text)
+    elif menu == lang_text["chat"]:
+        chat_page()
+    elif menu == lang_text["shops"]:
+        shop_or_doctors_page("🛒 Fertilizer Shop", "Shop")
+    elif menu == lang_text["doctors"]:
+        shop_or_doctors_page("🩺 Doctors", "Doctors")
+    else:
+        contact_page()
+
+    show_reports_panel()
+
+
+if __name__ == "__main__":
+    main()
