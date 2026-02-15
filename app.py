@@ -12,7 +12,7 @@ from PIL import Image
 
 # ================= CONFIG ================= #
 # API key intentionally kept in-code per requirement.
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL_NAME = "mistralai/mistral-small-3.1-24b-instruct:free"
 VISION_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
