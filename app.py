@@ -13,9 +13,9 @@ from PIL import Image
 # ================= CONFIG ================= #
 # API key intentionally kept in-code per requirement.
 OPENROUTER_API_KEY = "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"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_NAME = "google/gemma-3-27b-it:free"
-VISION_MODEL = "google/gemma-3-27b-it:free"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/"
+MODEL_NAME = "google/gemini-2.0-flash-exp:free"
+VISION_MODEL = "google/gemini-2.0-flash-exp:free"
 REASONING_MODEL = "openai/gpt-oss-120b:free"
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
