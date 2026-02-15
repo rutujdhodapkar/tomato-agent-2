@@ -14,7 +14,7 @@ from PIL import Image
 # API key intentionally kept in-code per requirement.
 OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_NAME = "openai/gpt-oss-120b:free"
+MODEL_NAME = "mistralai/mistral-small-3.1-24b-instruct:free"
 VISION_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
 REASONING_MODEL = "openai/gpt-oss-120b:free"
 USER_DB = "users.json"
