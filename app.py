@@ -234,6 +234,7 @@ def ensure_session_defaults():
         "detection_result": None,
         "menu_choice": "Home",
         "location": "",
+        "cost_estimation": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -356,6 +357,54 @@ def sidebar_controls(lang_text):
             st.rerun()
 
         st.session_state.theme = st.selectbox("Theme", ["Light", "Dark"])
+
+        st.markdown("---")
+        st.subheader("📊 Cost Estimation")
+
+        # Inputs
+        est_location = st.text_input("Location (city/region)")
+        est_crop = st.text_input("Crop name")
+        est_acres = st.number_input("Total acres", min_value=0.0, step=0.1)
+        est_invested = st.number_input("Total invested (₹ or $)", min_value=0.0, step=100.0)
+
+        if st.button("Estimate Cost & Profit"):
+            if not (est_location and est_crop and est_acres > 0):
+                st.error("Please fill all fields correctly.")
+            else:
+                # build prompt
+                cost_prompt = f"""
+                Location: {est_location}
+                Crop: {est_crop}
+                Acres: {est_acres}
+                Investment: {est_invested}
+
+                Provide a cost, revenue & profit analysis including:
+                1) Current local market price per unit (use web inference)
+                2) Expected monthly prices and best months to sell
+                3) Estimate total cost, revenue, profit/loss
+                4) Travel costs if selling outside local mandi/market
+                5) Suggested sale timing and risk factors
+
+                Format as JSON:
+                {{
+                  "market_price": "...",
+                  "price_trend": "...",
+                  "best_months": [...],
+                  "total_cost": "...",
+                  "expected_revenue": "...",
+                  "profit_or_loss": "...",
+                  "travel_costs": "...",
+                  "recommendation": "..."
+                }}
+                """
+                estimation = call_openrouter(
+                    [
+                        {"role": "system", "content": "You are an agricultural economic analyst."},
+                        {"role": "user", "content": cost_prompt},
+                    ],
+                    REASONING_MODEL
+                )
+                st.session_state.cost_estimation = estimation
 
         st.markdown("---")
         st.subheader("Quick Agent Actions")
@@ -623,6 +672,44 @@ def main():
         shop_or_doctors_page("🩺 Doctors", "Doctors", lang_text)
     else:
         contact_page()
+
+    if st.session_state.cost_estimation:
+        est = st.session_state.cost_estimation
+        st.markdown("---")
+        st.markdown("## 📊 Cost & Profit Estimation Report")
+
+        # Try JSON parse if AI returned text
+        try:
+            # Clean output in case of markdown blocks
+            if "```json" in est:
+                est = est.split("```json")[1].split("```")[0].strip()
+            elif "```" in est:
+                est = est.split("```")[1].split("```")[0].strip()
+            
+            est_json = json.loads(est)
+        except:
+            st.write("⚠️ Could not parse estimation. Raw output:")
+            st.write(est)
+            est_json = None
+
+        if est_json:
+            st.write("### 📈 Local Market Price")
+            st.write(est_json.get("market_price","N/A"))
+
+            st.write("### 📅 Price Trend & Best Months")
+            st.write(est_json.get("price_trend",""))
+            st.write("Best Months to Sell:", est_json.get("best_months", []))
+
+            st.write("### 💰 Cost & Revenue Breakdown")
+            st.write(f"Total Production Cost: {est_json.get('total_cost','')}")
+            st.write(f"Expected Revenue: {est_json.get('expected_revenue','')}")
+            st.write(f"Profit/Loss: {est_json.get('profit_or_loss','')}")
+
+            st.write("### 🚚 Travel Costs")
+            st.write(est_json.get("travel_costs",""))
+
+            st.write("### 🧠 Recommendation")
+            st.info(est_json.get("recommendation",""))
 
     show_reports_panel()
 
