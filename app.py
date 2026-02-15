@@ -14,9 +14,9 @@ from PIL import Image
 # API key intentionally kept in-code per requirement.
 OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_NAME = "google/gemini-2.0-flash-exp:free"
-VISION_MODEL = "google/gemini-2.0-flash-exp:free"
-REASONING_MODEL = "deepseek/deepseek-r1-0528:free"
+MODEL_NAME = "google/gemma-3-27b-it:free"
+VISION_MODEL = "google/gemma-3-27b-it:free"
+REASONING_MODEL = "openai/gpt-oss-120b:free"
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
 
@@ -72,6 +72,41 @@ FONT_MAP = {
     "English": "Arial, sans-serif",
     "Hindi": "'Nirmala UI', 'Mangal', sans-serif",
     "Marathi": "'Noto Sans Devanagari', 'Mangal', sans-serif",
+}
+
+ACTION_MAP = {
+    "Soil moisture modeling": "Analyze soil moisture modeling with sensor + weather assumptions and actionable irrigation guidance.",
+    "Water requirement prediction": "Predict farm water requirement for next 14 days by crop stage and weather uncertainty.",
+    "AI-driven irrigation schedule": "Create AI-driven irrigation schedule with time windows and liters/acre.",
+    "Drought early warning": "Generate drought early warning indicators for 30 days.",
+    "Water waste optimization %": "Estimate current water waste percentage and optimization opportunities.",
+    "NPK prediction": "Predict nitrogen, phosphorus, potassium levels and corrective plan.",
+    "pH imbalance detection": "Detect pH imbalance and recommend treatment protocol.",
+    "Nutrient deficiency fusion": "Use leaf + soil fusion assumptions to identify nutrient deficiencies.",
+    "Fertilizer recommendation": "Build fertilizer recommendation engine output for this farm.",
+    "Long-term soil health score": "Estimate long-term soil health score and yearly action plan.",
+    "Insect classification": "Classify likely insects and risk level by season.",
+    "Pest density estimation": "Estimate pest density per acre with intervention threshold.",
+    "Swarm detection": "Detect swarm risk and alert plan.",
+    "Migration pattern prediction": "Predict wind-based pest migration pattern over 7 days.",
+    "Smart pesticide timing": "Recommend ideal pesticide application timing.",
+    "Satellite imagery integration": "Provide satellite imagery integration plan and inferred crop signals.",
+    "Growth stage tracking": "Track crop growth stage and next milestones.",
+    "Production estimate per acre": "Estimate production per acre with confidence range.",
+    "Profit forecast": "Generate profit forecast using yield, costs, and market price assumptions.",
+    "Market price integration": "Integrate market price trend and suggest sell timing.",
+    "Camera→Analyze→Recommend→Auto-execute": "Design camera-to-execution pipeline with automation gates.",
+    "Irrigation valve control": "Generate irrigation valve control logic and failsafe.",
+    "Sprayer control": "Generate smart sprayer control strategy.",
+    "Drone-based spraying": "Plan drone-based spraying route and timing.",
+    "Automated farm reporting": "Create automated farm reporting template and KPI plan.",
+    "Multi-modal fusion model": "Design fusion model: Vision + Weather + Soil + Time.",
+    "Disease risk 7-30 days": "Predict disease risk for 7-30 days using humidity + temperature.",
+    "Frost risk alerts": "Predict frost risk and preventive actions.",
+    "Heat stress prediction": "Predict heat stress windows and protection actions.",
+    "Crop growth stage mapping": "Generate crop growth stage map from multimodal data.",
+    "Price prediction AI": "Calculate total crop production cost and expected local market gain/profit.",
+    "Full Agent Pipeline": "Build one proper end-to-end AI agent pipeline using Vision/Climate/Soil/Water/Market/Execution layers.",
 }
 
 
@@ -277,51 +312,31 @@ def sidebar_controls(lang_text):
     with st.sidebar:
         st.title("🤖 Agent Control Panel")
 
-        st.session_state.language = st.selectbox("Language", list(TRANSLATIONS.keys()), index=list(TRANSLATIONS.keys()).index(st.session_state.language))
+        # Language selection with Apply button
+        current_lang_idx = list(TRANSLATIONS.keys()).index(st.session_state.language)
+        new_lang = st.selectbox("Select Language", list(TRANSLATIONS.keys()), index=current_lang_idx)
+        
+        if st.button("Apply Language"):
+            st.session_state.language = new_lang
+            st.rerun()
+
         st.session_state.theme = st.selectbox("Theme", ["Light", "Dark"])
 
         st.markdown("---")
         st.subheader("Quick Agent Actions")
 
-        action_map = {
-            "Soil moisture modeling": "Analyze soil moisture modeling with sensor + weather assumptions and actionable irrigation guidance.",
-            "Water requirement prediction": "Predict farm water requirement for next 14 days by crop stage and weather uncertainty.",
-            "AI-driven irrigation schedule": "Create AI-driven irrigation schedule with time windows and liters/acre.",
-            "Drought early warning": "Generate drought early warning indicators for 30 days.",
-            "Water waste optimization %": "Estimate current water waste percentage and optimization opportunities.",
-            "NPK prediction": "Predict nitrogen, phosphorus, potassium levels and corrective plan.",
-            "pH imbalance detection": "Detect pH imbalance and recommend treatment protocol.",
-            "Nutrient deficiency fusion": "Use leaf + soil fusion assumptions to identify nutrient deficiencies.",
-            "Fertilizer recommendation": "Build fertilizer recommendation engine output for this farm.",
-            "Long-term soil health score": "Estimate long-term soil health score and yearly action plan.",
-            "Insect classification": "Classify likely insects and risk level by season.",
-            "Pest density estimation": "Estimate pest density per acre with intervention threshold.",
-            "Swarm detection": "Detect swarm risk and alert plan.",
-            "Migration pattern prediction": "Predict wind-based pest migration pattern over 7 days.",
-            "Smart pesticide timing": "Recommend ideal pesticide application timing.",
-            "Satellite imagery integration": "Provide satellite imagery integration plan and inferred crop signals.",
-            "Growth stage tracking": "Track crop growth stage and next milestones.",
-            "Production estimate per acre": "Estimate production per acre with confidence range.",
-            "Profit forecast": "Generate profit forecast using yield, costs, and market price assumptions.",
-            "Market price integration": "Integrate market price trend and suggest sell timing.",
-            "Camera→Analyze→Recommend→Auto-execute": "Design camera-to-execution pipeline with automation gates.",
-            "Irrigation valve control": "Generate irrigation valve control logic and failsafe.",
-            "Sprayer control": "Generate smart sprayer control strategy.",
-            "Drone-based spraying": "Plan drone-based spraying route and timing.",
-            "Automated farm reporting": "Create automated farm reporting template and KPI plan.",
-            "Multi-modal fusion model": "Design fusion model: Vision + Weather + Soil + Time.",
-            "Disease risk 7-30 days": "Predict disease risk for 7-30 days using humidity + temperature.",
-            "Frost risk alerts": "Predict frost risk and preventive actions.",
-            "Heat stress prediction": "Predict heat stress windows and protection actions.",
-            "Crop growth stage mapping": "Generate crop growth stage map from multimodal data.",
-            "Price prediction AI": "Calculate total crop production cost and expected local market gain/profit.",
-            "Full Agent Pipeline": "Build one proper end-to-end AI agent pipeline using Vision/Climate/Soil/Water/Market/Execution layers.",
-        }
-
-        selected_action = st.selectbox("Select analysis", list(action_map.keys()))
-        if st.button("Run analysis"):
-            queue_task(selected_action, action_map[selected_action])
-            st.success(f"Queued: {selected_action}")
+        selected_action = st.selectbox("Select analysis", list(ACTION_MAP.keys()))
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Run analysis"):
+                queue_task(selected_action, ACTION_MAP[selected_action])
+                st.success(f"Queued: {selected_action}")
+        
+        with col2:
+            if st.button("Do all analysis"):
+                for action, prompt in ACTION_MAP.items():
+                    queue_task(action, prompt)
+                st.success("All analyses queued!")
 
         if st.button("Run all core layers"):
             for layer_task in [
