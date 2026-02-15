@@ -12,7 +12,7 @@ from PIL import Image
 
 # ================= CONFIG ================= #
 # API key intentionally kept in-code per requirement.
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL_NAME = "google/gemma-3-27b-it:free"
 VISION_MODEL = "google/gemma-3-27b-it:free"
@@ -176,8 +176,18 @@ def run_reasoning_model(image_bytes, species_info):
         ]
     }
 
-    response = requests.post(OPENROUTER_URL, headers=headers, json=payload)
+    response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
     result = response.json()
+
+    if "choices" not in result:
+        err_msg = "Unknown error"
+        if "error" in result:
+            err_msg = result["error"].get("message", "Unknown error")
+            if "401" in str(result) or "User not found" in err_msg:
+                return {"error": f"API Authentication Error (401): {err_msg}. Check your OpenRouter account/key."}
+            if "402" in str(result):
+                return {"error": f"API Credit Error (402): {err_msg}. Please check your OpenRouter balance."}
+        return {"error": f"API Error: {err_msg}", "raw_response": result}
 
     try:
         output_text = result["choices"][0]["message"]["content"]
@@ -189,7 +199,7 @@ def run_reasoning_model(image_bytes, species_info):
             
         return json.loads(output_text)
     except Exception as e:
-        return {"error": f"Reasoning model failed: {str(e)}", "raw_response": result}
+        return {"error": f"Reasoning model failed to parse output: {str(e)}", "raw_response": result}
 
 
 def ensure_session_defaults():
