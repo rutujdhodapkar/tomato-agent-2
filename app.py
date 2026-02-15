@@ -13,7 +13,7 @@ from PIL import Image
 # ================= CONFIG ================= #
 # API key intentionally kept in-code per requirement.
 OPENROUTER_API_KEY = "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"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL_NAME = "google/gemini-2.0-flash-exp:free"
 VISION_MODEL = "google/gemini-2.0-flash-exp:free"
 REASONING_MODEL = "openai/gpt-oss-120b:free"
@@ -118,21 +118,23 @@ def call_openrouter(messages, model=REASONING_MODEL):
     payload = {"model": model, "messages": messages}
     try:
         response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        try:
-            data = response.json()
-        except requests.exceptions.JSONDecodeError:
-            return f"API returned non-JSON response (Status {response.status_code}): {response.text[:200]}"
+        
+        # 🔥 Check status first
+        if response.status_code != 200:
+            return f"HTTP Error {response.status_code}: {response.text}"
 
+        # 🔥 Ensure JSON response
+        if "application/json" not in response.headers.get("Content-Type", ""):
+            return f"API returned non-JSON response:\n{response.text[:500]}"
+
+        data = response.json()
         if "choices" in data:
             return data["choices"][0]["message"]["content"]
         if "error" in data:
-            err_msg = data["error"].get("message", "Unknown error")
-            if "401" in str(data) or "User not found" in err_msg:
-                return f"Model Error (401): {err_msg}. Please check if the model {model} is available/free for your account."
-            return f"API Error: {err_msg}"
-        return f"Unexpected response format: {data}"
-    except Exception as exc:
-        return f"Service unavailable. Error: {exc}"
+            return f"API Error: {data['error'].get('message')}"
+        return f"Unexpected format: {data}"
+    except requests.exceptions.RequestException as e:
+        return f"Network Error: {str(e)}"
 
 
 def run_reasoning_model(image_bytes, species_info):
@@ -180,19 +182,22 @@ def run_reasoning_model(image_bytes, species_info):
     }
 
     response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+    
+    if response.status_code != 200:
+        return {"error": f"HTTP Error {response.status_code}: {response.text}"}
+
+    if "application/json" not in response.headers.get("Content-Type", ""):
+        return {"error": "API returned non-JSON response", "raw": response.text[:500]}
+
     try:
         result = response.json()
     except requests.exceptions.JSONDecodeError:
-        return {"error": f"API returned non-JSON response (Status {response.status_code})", "raw_response_text": response.text[:500]}
+         return {"error": "Failed to decode JSON", "raw": response.text[:500]}
 
     if "choices" not in result:
         err_msg = "Unknown error"
         if "error" in result:
             err_msg = result["error"].get("message", "Unknown error")
-            if "401" in str(result) or "User not found" in err_msg:
-                return {"error": f"API Authentication Error (401): {err_msg}. Check your OpenRouter account/key."}
-            if "402" in str(result):
-                return {"error": f"API Credit Error (402): {err_msg}. Please check your OpenRouter balance."}
         return {"error": f"API Error: {err_msg}", "raw_response": result}
 
     try:
