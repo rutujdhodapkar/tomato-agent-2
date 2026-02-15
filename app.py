@@ -14,8 +14,8 @@ from PIL import Image
 # API key intentionally kept in-code per requirement.
 OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_NAME = "nvidia/nemotron-nano-12b-v2-vl:free"
-VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
+MODEL_NAME = "mistralai/mistral-small-3.1-24b-instruct:free"
+VISION_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
 REASONING_MODEL = "openai/gpt-oss-120b:free"
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
@@ -251,36 +251,35 @@ def queue_task(task_name, prompt, model=REASONING_MODEL):
     st.session_state.task_queue.append({"task": task_name, "prompt": prompt, "model": model})
 
 
-def run_background_task_once():
-    if not st.session_state.task_queue:
-        if st.session_state.agent_status != "Idle":
-            st.session_state.agent_status = "Idle"
-        return
+def run_all_background_tasks():
+    while st.session_state.task_queue:
+        task = st.session_state.task_queue.pop(0)
+        st.session_state.agent_status = f"Running: {task['task']}"
+        
+        report = call_openrouter(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an agricultural super-agent. "
+                        "Give structured operational report with metrics, risk score, timeline, ROI impact."
+                    ),
+                },
+                {"role": "user", "content": task["prompt"]},
+            ],
+            task["model"],
+        )
 
-    task = st.session_state.task_queue.pop(0)
-    st.session_state.agent_status = f"Running: {task['task']}"
-    report = call_openrouter(
-        [
+        st.session_state.reports.insert(
+            0,
             {
-                "role": "system",
-                "content": (
-                    "You are an agricultural super-agent. Give practical steps, risk score, "
-                    "timeline, and clear recommendation bullets."
-                ),
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "title": task["task"],
+                "content": report,
             },
-            {"role": "user", "content": task["prompt"]},
-        ],
-        task["model"],
-    )
-    st.session_state.reports.insert(
-        0,
-        {
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "title": task["task"],
-            "content": report,
-        },
-    )
-    st.session_state.agent_status = f"Completed: {task['task']}"
+        )
+
+    st.session_state.agent_status = "All tasks completed"
 
 
 def export_chat_to_pdf():
@@ -535,7 +534,7 @@ def main():
     sidebar_controls(lang_text)
     apply_local_font(st.session_state.language)
 
-    run_background_task_once()
+    run_all_background_tasks()
     st.markdown(f"### 🧠 Agent Status: {st.session_state.agent_status}")
 
     # Navigation Buttons instead of radio
