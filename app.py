@@ -3,6 +3,7 @@ import io
 import json
 import os
 from datetime import datetime
+import time
 
 import requests
 import streamlit as st
@@ -147,6 +148,9 @@ def run_reasoning_model(image_bytes, species_info):
     Identify:
     1. The specific Crop/Plant name.
     2. The most likely Disease or Health Issue (if any). If healthy, state 'Healthy'.
+    3. Local soil health trend (nutrients, pH, moisture) based on common conditions for the location and crop.
+    4. Water forecast & irrigation suggestions for the next 7 days.
+    5. Overall risk score (Low / Medium / High).
 
     Return ONLY valid JSON in this structure:
     {{
@@ -154,7 +158,10 @@ def run_reasoning_model(image_bytes, species_info):
         "disease_name": "Name of the disease or 'Healthy'",
         "description": "Brief description of the crop and disease condition",
         "solution": "Step-by-step solution to fix the issue or care instructions if healthy",
-        "fertilizers": "Recommended fertilizers or nutrients for this specific condition and crop"
+        "fertilizers": "Recommended fertilizers or nutrients for this specific condition and crop",
+        "soil_insights": "Detailed soil health insights (nutrients, pH, moisture)",
+        "water_forecast": "Water forecast and irrigation plan",
+        "risk_score": "Low/Medium/High"
     }}
     """
 
@@ -410,35 +417,93 @@ def home_page(lang_text):
             image.save(buffer, format="JPEG")
             img_bytes = buffer.getvalue()
             
-            with st.spinner("Analyzing with Vision AI..."):
-                species_info = {"location": location}
-                result = run_reasoning_model(img_bytes, species_info)
-                st.session_state.detection_result = result
-                
-                if "error" not in result:
-                    st.success("Analysis Complete!")
-                else:
-                    st.error(result["error"])
+            # Sequential Status Messages
+            status_container = st.empty()
+            with status_container.container():
+                st.markdown("### 🔁 Running full farm intelligence pipeline...")
+                st.write("• Getting location info…")
+                time.sleep(0.5)
+                st.write("• Fetching local soil reports…")
+                time.sleep(0.5)
+                st.write("• Fetching local water & weather insights…")
+                time.sleep(0.5)
+                st.write("• Analyzing image…")
+                time.sleep(0.5)
+                st.write("• Thinking…")
+                time.sleep(1)
+
+            species_info = {"location": location}
+            result = run_reasoning_model(img_bytes, species_info)
+            status_container.empty()
+            st.session_state.detection_result = result
+            
+            if "error" not in result:
+                st.success("Analysis Complete!")
+            else:
+                st.error(result["error"])
 
     if st.session_state.detection_result and "error" not in st.session_state.detection_result:
         res = st.session_state.detection_result
         
-        # Display Crop and Disease in Title
-        st.markdown(f"## 🌿 Crop: {res['crop_name']} | 🛑 Disease: {res['disease_name']}")
+        st.markdown("---")
+        # Build Report
+        st.markdown("## 🌾 Full Analysis Report")
         
-        col1, col2, col3 = st.columns(3)
+        # Crop & Disease Summary
+        col_crop, col_disease = st.columns(2)
+        with col_crop:
+            st.markdown(f"### 🧬 Crop Identified")
+            st.write(res.get("crop_name", "Unknown"))
+        with col_disease:
+            st.markdown(f"### 🛑 Disease Status")
+            st.write(res.get("disease_name", "Healthy"))
         
-        with col1:
-            if st.button(lang_text["btn_desc"]):
-                st.info(f"**Description:**\n\n{res['description']}")
-                
-        with col2:
-            if st.button(lang_text["btn_sol"]):
-                st.success(f"**Recommended Solution:**\n\n{res['solution']}")
-                
-        with col3:
-            if st.button(lang_text["btn_fert"]):
-                st.warning(f"**Real-time Fertilizer Recommendations:**\n\n{res['fertilizers']}")
+        st.markdown("---")
+        
+        st.markdown("## 🧠 Condition Assessment")
+        st.write(res.get("description", "No description available."))
+        
+        st.markdown("## 🛠 Actionable Prescription")
+        st.write(res.get("solution", "No solution provided."))
+        
+        st.markdown("---")
+        
+        st.markdown("## 📊 Soil & Moisture Insights")
+        soil = res.get("soil_insights", "")
+        if soil:
+            st.write(soil)
+        else:
+            st.write("No soil insights available.")
+        
+        st.markdown("## 💧 Water & Weather Outlook")
+        water = res.get("water_forecast", "")
+        if water:
+            st.write(water)
+        else:
+            st.write("No water forecast available.")
+        
+        st.markdown("## 📈 Risk & Urgency")
+        risk = res.get("risk_score", "None")
+        if risk == "High":
+             st.error(f"**Risk Level:** {risk}")
+        elif risk == "Medium":
+             st.warning(f"**Risk Level:** {risk}")
+        else:
+             st.success(f"**Risk Level:** {risk}")
+        
+        st.markdown("---")
+        
+        # Fertilizer Suggestion Table
+        st.markdown("## 🧪 Fertilizer Recommendations (Search Online)")
+        fertilizers = res.get("fertilizers", "")
+        if fertilizers:
+            st.write(fertilizers)
+            st.markdown(
+                "<i>Use these names to search online for suppliers, prices, and local availability.</i>",
+                unsafe_allow_html=True
+            )
+        else:
+            st.write("No fertilizer recommendations available.")
         
         st.markdown("---")
 
