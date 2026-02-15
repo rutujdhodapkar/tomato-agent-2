@@ -121,9 +121,15 @@ def call_openrouter(messages, model=REASONING_MODEL):
         data = response.json()
         if "choices" in data:
             return data["choices"][0]["message"]["content"]
-        return f"Model response: {data}"
+        if "error" in data:
+            err_msg = data["error"].get("message", "Unknown error")
+            if "401" in str(data) or "User not found" in err_msg:
+                # Fallback if the user's selected model fails due to account/credits issue
+                return f"Model Error (401): {err_msg}. Please check if the model {model} is available/free for your account."
+            return f"API Error: {err_msg}"
+        return f"Unexpected response format: {data}"
     except Exception as exc:
-        return f"Service unavailable, fallback used. Error: {exc}"
+        return f"Service unavailable. Error: {exc}"
 
 
 def run_reasoning_model(image_bytes, species_info):
@@ -198,6 +204,8 @@ def ensure_session_defaults():
         "reports": [],
         "chat_history": [],
         "detection_result": None,
+        "menu_choice": "Home",
+        "location": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -369,7 +377,8 @@ def sidebar_controls(lang_text):
 
 def home_page(lang_text):
     st.title("🌾 Agricultural Super AI Agent")
-    location = st.text_input("Farm location")
+    st.session_state.location = st.text_input("Farm location", value=st.session_state.location)
+    location = st.session_state.location # Local reference
     uploaded_image = st.file_uploader(lang_text["upload"], type=["jpg", "jpeg", "png"])
 
     if uploaded_image:
@@ -416,45 +425,61 @@ def home_page(lang_text):
 
 def chat_page():
     st.title("💬 Agent Chat")
-    query = st.text_input("Ask about farming, costs, irrigation, market, disease...")
-    if st.button("Send") and query.strip():
+    
+    # Chat container for scrollable messages
+    chat_container = st.container()
+    
+    with chat_container:
+        for msg in st.session_state.chat_history:
+            with st.chat_message(msg['role']):
+                st.markdown(f"*{msg['time']}*")
+                st.write(msg['text'])
+
+    query = st.chat_input("Ask about farming, costs, irrigation, market, disease...")
+    if query:
         st.session_state.chat_history.append(
             {"time": datetime.now().strftime("%H:%M:%S"), "role": "user", "text": query}
         )
-        answer = call_openrouter(
-            [
-                {"role": "system", "content": "You are a practical agricultural AI agent."},
-                {"role": "user", "content": query},
-            ]
-        )
+        with st.spinner("Agent is thinking..."):
+            answer = call_openrouter(
+                [
+                    {"role": "system", "content": "You are a practical agricultural AI agent."},
+                    {"role": "user", "content": query},
+                ]
+            )
         st.session_state.chat_history.append(
             {"time": datetime.now().strftime("%H:%M:%S"), "role": "assistant", "text": answer}
         )
-
-    for msg in st.session_state.chat_history[-20:]:
-        st.markdown(f"**{msg['role'].title()} ({msg['time']}):** {msg['text']}")
+        st.rerun()
 
 
-def shop_or_doctors_page(title, actor):
+def shop_or_doctors_page(title, actor, lang_text):
     st.title(title)
-    crop = st.text_input(f"{actor}: Crop name")
-    requirement = st.text_input(f"{actor}: Requirement")
+    col_in1, col_in2 = st.columns(2)
+    with col_in1:
+        crop = st.text_input(f"{actor}: Crop name")
+    with col_in2:
+        requirement = st.text_input(f"{actor}: Requirement")
 
     col1, col2 = st.columns(2)
     with col1:
         if st.button(f"Search {actor}"):
-            queue_task(
-                f"{actor} Search",
-                f"For crop {crop}, requirement {requirement}, provide top options with price, reason, and availability.",
-            )
-            st.success(f"{actor} search queued.")
+            with st.spinner(f"Finding the best {actor.lower()}s for you..."):
+                location = st.session_state.get('location', 'unknown location')
+                search_prompt = f"As an agricultural AI, find/recommend 5 {actor.lower()}s or services for {crop} with requirement: {requirement} near {location}. Provide name, contact detail (simulated), and specialized service. Format as a clean list."
+                response = call_openrouter([{"role": "user", "content": search_prompt}])
+                if "error" not in response.lower() or "401" not in response:
+                    st.success(f"Found {actor}s!")
+                    st.markdown(response)
+                else:
+                    st.error(f"Search failed: {response}")
+
     with col2:
-        if st.button("Show all"):
-            queue_task(
-                f"{actor} Show All",
-                f"For crop {crop}, list all major {actor.lower()} options with pricing and usage summary.",
-            )
-            st.success("Show-all report queued.")
+        if st.button("Show all nearby"):
+            with st.spinner(f"Listing all major {actor.lower()} options..."):
+                search_prompt = f"List all major {actor.lower()} options for {crop} farming. Include pricing estimates and usage summary."
+                response = call_openrouter([{"role": "user", "content": search_prompt}])
+                st.markdown(response)
 
 
 def contact_page():
@@ -492,21 +517,25 @@ def main():
     run_background_task_once()
     st.markdown(f"### 🧠 Agent Status: {st.session_state.agent_status}")
 
-    menu = st.radio(
-        "Navigation",
-        [lang_text["home"], lang_text["chat"], lang_text["shops"], lang_text["doctors"], lang_text["contact"]],
-        horizontal=True,
-        label_visibility="collapsed",
-    )
+    # Navigation Buttons instead of radio
+    cols = st.columns(5)
+    menu_items = [lang_text["home"], lang_text["chat"], lang_text["shops"], lang_text["doctors"], lang_text["contact"]]
+    
+    for i, item in enumerate(menu_items):
+        if cols[i].button(item, use_container_width=True, type="primary" if st.session_state.menu_choice == item else "secondary"):
+            st.session_state.menu_choice = item
+            st.rerun()
+
+    menu = st.session_state.menu_choice
 
     if menu == lang_text["home"]:
         home_page(lang_text)
     elif menu == lang_text["chat"]:
         chat_page()
     elif menu == lang_text["shops"]:
-        shop_or_doctors_page("🛒 Fertilizer Shop", "Shop")
+        shop_or_doctors_page("🛒 Fertilizer Shop", "Shop", lang_text)
     elif menu == lang_text["doctors"]:
-        shop_or_doctors_page("🩺 Doctors", "Doctors")
+        shop_or_doctors_page("🩺 Doctors", "Doctors", lang_text)
     else:
         contact_page()
 
