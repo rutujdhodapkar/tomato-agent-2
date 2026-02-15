@@ -12,9 +12,10 @@ from PIL import Image
 
 # ================= CONFIG ================= #
 # API key intentionally kept in-code per requirement.
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
+MODEL_NAME = "google/gemini-2.0-flash-exp:free"
+VISION_MODEL = "google/gemini-2.0-flash-exp:free"
 REASONING_MODEL = "deepseek/deepseek-r1-0528:free"
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
@@ -32,6 +33,9 @@ TRANSLATIONS = {
         "password": "Password",
         "upload": "Upload Leaf Image",
         "analyze": "Analyze",
+        "btn_desc": "📄 Disease Description",
+        "btn_sol": "💡 Get Solution",
+        "btn_fert": "🧪 Get Fertilizers",
     },
     "Hindi": {
         "home": "होम",
@@ -44,6 +48,9 @@ TRANSLATIONS = {
         "password": "पासवर्ड",
         "upload": "पत्ता अपलोड करें",
         "analyze": "विश्लेषण",
+        "btn_desc": "📄 बीमारी का विवरण",
+        "btn_sol": "💡 समाधान प्राप्त करें",
+        "btn_fert": "🧪 उर्वरक प्राप्त करें",
     },
     "Marathi": {
         "home": "मुख्यपृष्ठ",
@@ -56,6 +63,9 @@ TRANSLATIONS = {
         "password": "पासवर्ड",
         "upload": "पान अपलोड करा",
         "analyze": "विश्लेषण",
+        "btn_desc": "📄 रोगाचे वर्णन",
+        "btn_sol": "💡 उपाय मिळवा",
+        "btn_fert": "🧪 खते मिळवा",
     },
 }
 FONT_MAP = {
@@ -81,6 +91,66 @@ def call_openrouter(messages, model=REASONING_MODEL):
         return f"Service unavailable, fallback used. Error: {exc}"
 
 
+def run_reasoning_model(image_bytes, species_info):
+    base64_image = base64.b64encode(image_bytes).decode('utf-8')
+    
+    prompt = f"""
+    Analyze this plant image and the provided metadata. 
+    Metadata: {json.dumps(species_info)}
+
+    Identify:
+    1. The specific Crop/Plant name.
+    2. The most likely Disease or Health Issue (if any). If healthy, state 'Healthy'.
+
+    Return ONLY valid JSON in this structure:
+    {{
+        "crop_name": "Name of the crop",
+        "disease_name": "Name of the disease or 'Healthy'",
+        "description": "Brief description of the crop and disease condition",
+        "solution": "Step-by-step solution to fix the issue or care instructions if healthy",
+        "fertilizers": "Recommended fertilizers or nutrients for this specific condition and crop"
+    }}
+    """
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": MODEL_NAME,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+
+    response = requests.post(OPENROUTER_URL, headers=headers, json=payload)
+    result = response.json()
+
+    try:
+        output_text = result["choices"][0]["message"]["content"]
+        # Remove markdown code blocks if present
+        if "```json" in output_text:
+            output_text = output_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in output_text:
+            output_text = output_text.split("```")[1].split("```")[0].strip()
+            
+        return json.loads(output_text)
+    except Exception as e:
+        return {"error": f"Reasoning model failed: {str(e)}", "raw_response": result}
+
+
 def ensure_session_defaults():
     defaults = {
         "language": "English",
@@ -92,6 +162,7 @@ def ensure_session_defaults():
         "task_queue": [],
         "reports": [],
         "chat_history": [],
+        "detection_result": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -286,38 +357,46 @@ def home_page(lang_text):
     location = st.text_input("Farm location")
     uploaded_image = st.file_uploader(lang_text["upload"], type=["jpg", "jpeg", "png"])
 
-    if st.button(lang_text["analyze"]):
-        if not uploaded_image:
-            st.error("Upload an image first.")
-            return
+    if uploaded_image:
         image = Image.open(uploaded_image)
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG")
-        image_base64 = base64.b64encode(buffer.getvalue()).decode()
+        st.image(image, caption="Uploaded Leaf", use_container_width=True)
+        
+        if st.button(lang_text["analyze"]):
+            buffer = io.BytesIO()
+            image.save(buffer, format="JPEG")
+            img_bytes = buffer.getvalue()
+            
+            with st.spinner("Analyzing with Vision AI..."):
+                species_info = {"location": location}
+                result = run_reasoning_model(img_bytes, species_info)
+                st.session_state.detection_result = result
+                
+                if "error" not in result:
+                    st.success("Analysis Complete!")
+                else:
+                    st.error(result["error"])
 
-        queue_task(
-            "Leaf disease analysis",
-            (
-                f"Location: {location}. Analyze uploaded crop leaf image and provide diagnosis, confidence, treatment, "
-                "and prevention plan."
-            ),
-        )
-
-        vision_text = call_openrouter(
-            [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Describe this crop leaf and possible stress signs."},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
-                    ],
-                }
-            ],
-            model=VISION_MODEL,
-        )
-        st.info("Vision layer summary:")
-        st.write(vision_text)
-        st.success("Leaf pipeline queued. Agent continues processing in background.")
+    if st.session_state.detection_result and "error" not in st.session_state.detection_result:
+        res = st.session_state.detection_result
+        
+        # Display Crop and Disease in Title
+        st.markdown(f"## 🌿 Crop: {res['crop_name']} | 🛑 Disease: {res['disease_name']}")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button(lang_text["btn_desc"]):
+                st.info(f"**Description:**\n\n{res['description']}")
+                
+        with col2:
+            if st.button(lang_text["btn_sol"]):
+                st.success(f"**Recommended Solution:**\n\n{res['solution']}")
+                
+        with col3:
+            if st.button(lang_text["btn_fert"]):
+                st.warning(f"**Real-time Fertilizer Recommendations:**\n\n{res['fertilizers']}")
+        
+        st.markdown("---")
 
 
 def chat_page():
