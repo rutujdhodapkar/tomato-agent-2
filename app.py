@@ -20,6 +20,8 @@ VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
 REASONING_MODEL = "openai/gpt-oss-120b:free"
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
+SARVAM_API_KEY = "sk_w2ff5un8_NwCt6eC0gfgjKezrySpjUCKn"
+SARVAM_URL = "https://api.sarvam.ai/translate"
 
 # ================= LANGUAGE / FONT ================= #
 TRANSLATIONS = {
@@ -73,6 +75,12 @@ FONT_MAP = {
     "English": "Arial, sans-serif",
     "Hindi": "'Nirmala UI', 'Mangal', sans-serif",
     "Marathi": "'Noto Sans Devanagari', 'Mangal', sans-serif",
+}
+
+LANGUAGE_CODE_MAP = {
+    "English": "en-IN",
+    "Hindi": "hi-IN",
+    "Marathi": "mr-IN",
 }
 
 ACTION_MAP = {
@@ -220,10 +228,39 @@ def run_reasoning_model(image_bytes, species_info):
         return {"error": f"Reasoning model failed to parse output: {str(e)}", "raw_response": result}
 
 
+def translate_text(text, target_language):
+    """Translate text using Sarvam AI API"""
+    if target_language == "English":
+        return text
+    
+    target_code = LANGUAGE_CODE_MAP.get(target_language, "en-IN")
+    headers = {
+        "api-subscription-key": SARVAM_API_KEY,
+        "content-type": "application/json",
+    }
+    payload = {
+        "source_language_code": "en-IN",
+        "target_language_code": target_code,
+        "speaker_gender": "Male",
+        "mode": "formal",
+        "model": "mayura:v1",
+        "enable_preprocessing": False,
+        "numerals_format": "native",
+        "input": text,
+    }
+    try:
+        response = requests.post(SARVAM_URL, headers=headers, json=payload, timeout=30)
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("output", text)
+    except Exception as e:
+        st.warning(f"Translation failed: {str(e)}")
+    return text
+
+
 def ensure_session_defaults():
     defaults = {
         "language": "English",
-        "theme": "Light",
         "logged_in": False,
         "username": "",
         "photo_url": "https://api.dicebear.com/8.x/adventurer/png?seed=Farmer",
@@ -356,8 +393,6 @@ def sidebar_controls(lang_text):
             st.session_state.language = new_lang
             st.rerun()
 
-        st.session_state.theme = st.selectbox("Theme", ["Light", "Dark"])
-
         st.markdown("---")
         st.subheader("📊 Cost Estimation")
 
@@ -442,8 +477,7 @@ def sidebar_controls(lang_text):
 
         with st.expander("Profile menu"):
             if st.button("Settings"):
-                st.info("Theme / Logout / More available below")
-            st.write("• Theme")
+                st.info("Logout / More available below")
             st.write("• Logout")
             st.write("• More")
             if st.button("Logout"):
