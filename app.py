@@ -13,11 +13,11 @@ from PIL import Image
 
 # ================= CONFIG ================= #
 # API key intentionally kept in-code per requirement.
-OPENROUTER_API_KEY = "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"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL_NAME = "nvidia/nemotron-nano-12b-v2-vl:free"
-VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
-REASONING_MODEL = "openai/gpt-oss-120b:free"
+NVIDIA_API_KEY = "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"
+NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+MODEL_NAME = "mistral-large-3-675b-instruct-2512"
+VISION_MODEL = "mistral-large-3-675b-instruct-2512"
+REASONING_MODEL = "mistral-large-3-675b-instruct-2512"
 SARVAM_API_KEY = "sk_w2ff5un8_NwCt6eC0gfgjKezrySpjUCKn"
 SARVAM_TRANSLATE_URL = "https://api.sarvam.ai/translate"
 USER_DB = "users.json"
@@ -120,12 +120,12 @@ ACTION_MAP = {
 
 def call_openrouter(messages, model=REASONING_MODEL):
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
         "Content-Type": "application/json",
     }
     payload = {"model": model, "messages": messages}
     try:
-        response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+        response = requests.post(NVIDIA_API_URL, headers=headers, json=payload, timeout=60)
         
         # 🔥 Check status first
         if response.status_code != 200:
@@ -173,7 +173,7 @@ def run_reasoning_model(image_bytes, species_info):
     """
 
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
         "Content-Type": "application/json"
     }
 
@@ -195,7 +195,7 @@ def run_reasoning_model(image_bytes, species_info):
         ]
     }
 
-    response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+    response = requests.post(NVIDIA_API_URL, headers=headers, json=payload, timeout=60)
     
     if response.status_code != 200:
         return {"error": f"HTTP Error {response.status_code}: {response.text}"}
