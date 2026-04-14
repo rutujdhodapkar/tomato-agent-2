@@ -125,7 +125,7 @@ def call_openrouter(messages, model=REASONING_MODEL):
     }
     payload = {"model": model, "messages": messages}
     try:
-        response = requests.post(NVIDIA_API_URL, headers=headers, json=payload, timeout=60)
+        response = requests.post(NVIDIA_API_URL, headers=headers, json=payload, timeout=6000)
         
         # 🔥 Check status first
         if response.status_code != 200:
@@ -195,7 +195,7 @@ def run_reasoning_model(image_bytes, species_info):
         ]
     }
 
-    response = requests.post(NVIDIA_API_URL, headers=headers, json=payload, timeout=60)
+    response = requests.post(NVIDIA_API_URL, headers=headers, json=payload, timeout=6000)
     
     if response.status_code != 200:
         return {"error": f"HTTP Error {response.status_code}: {response.text}"}
@@ -261,7 +261,7 @@ def apply_local_font(language):
     )
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=360000)
 def translate_text(text, language):
     if language == "English" or not isinstance(text, str):
         return text
