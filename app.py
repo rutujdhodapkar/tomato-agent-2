@@ -18,10 +18,10 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL_NAME = "nvidia/nemotron-nano-12b-v2-vl:free"
 VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
 REASONING_MODEL = "openai/gpt-oss-120b:free"
+SARVAM_API_KEY = "sk_w2ff5un8_NwCt6eC0gfgjKezrySpjUCKn"
+SARVAM_TRANSLATE_URL = "https://api.sarvam.ai/translate"
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
-SARVAM_API_KEY = "sk_w2ff5un8_NwCt6eC0gfgjKezrySpjUCKn"
-SARVAM_URL = "https://api.sarvam.ai/translate"
 
 # ================= LANGUAGE / FONT ================= #
 TRANSLATIONS = {
@@ -76,7 +76,6 @@ FONT_MAP = {
     "Hindi": "'Nirmala UI', 'Mangal', sans-serif",
     "Marathi": "'Noto Sans Devanagari', 'Mangal', sans-serif",
 }
-
 LANGUAGE_CODE_MAP = {
     "English": "en-IN",
     "Hindi": "hi-IN",
@@ -228,36 +227,6 @@ def run_reasoning_model(image_bytes, species_info):
         return {"error": f"Reasoning model failed to parse output: {str(e)}", "raw_response": result}
 
 
-def translate_text(text, target_language):
-    """Translate text using Sarvam AI API"""
-    if target_language == "English":
-        return text
-    
-    target_code = LANGUAGE_CODE_MAP.get(target_language, "en-IN")
-    headers = {
-        "api-subscription-key": SARVAM_API_KEY,
-        "content-type": "application/json",
-    }
-    payload = {
-        "source_language_code": "en-IN",
-        "target_language_code": target_code,
-        "speaker_gender": "Male",
-        "mode": "formal",
-        "model": "mayura:v1",
-        "enable_preprocessing": False,
-        "numerals_format": "native",
-        "input": text,
-    }
-    try:
-        response = requests.post(SARVAM_URL, headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
-            result = response.json()
-            return result.get("output", text)
-    except Exception as e:
-        st.warning(f"Translation failed: {str(e)}")
-    return text
-
-
 def ensure_session_defaults():
     defaults = {
         "language": "English",
@@ -290,6 +259,61 @@ def apply_local_font(language):
         """,
         unsafe_allow_html=True,
     )
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def translate_text(text, language):
+    if language == "English" or not isinstance(text, str):
+        return text
+
+    stripped = text.strip()
+    if not stripped:
+        return text
+
+    headers = {
+        "api-subscription-key": SARVAM_API_KEY,
+        "content-type": "application/json",
+    }
+    payload = {
+        "source_language_code": "en-IN",
+        "target_language_code": LANGUAGE_CODE_MAP.get(language, "en-IN"),
+        "speaker_gender": "Male",
+        "mode": "formal",
+        "model": "mayura:v1",
+        "enable_preprocessing": False,
+        "numerals_format": "native",
+        "input": stripped,
+    }
+    try:
+        response = requests.post(SARVAM_TRANSLATE_URL, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError):
+        return text
+
+    translated = (
+        data.get("translated_text")
+        or data.get("translation")
+        or data.get("output")
+        or data.get("data", {}).get("translated_text")
+    )
+    return translated if isinstance(translated, str) and translated.strip() else text
+
+
+def t(text):
+    return translate_text(text, st.session_state.language)
+
+
+def translate_result_data(data, language):
+    if language == "English":
+        return data
+    if isinstance(data, dict):
+        return {key: translate_result_data(value, language) for key, value in data.items()}
+    if isinstance(data, list):
+        return [translate_result_data(item, language) for item in data]
+    if isinstance(data, str):
+        return translate_text(data, language)
+    return data
 
 
 def queue_task(task_name, prompt, model=REASONING_MODEL):
@@ -383,28 +407,28 @@ def login_block(lang_text):
 
 def sidebar_controls(lang_text):
     with st.sidebar:
-        st.title("🤖 Agent Control Panel")
+        st.title(t("Agent Control Panel"))
 
         # Language selection with Apply button
         current_lang_idx = list(TRANSLATIONS.keys()).index(st.session_state.language)
-        new_lang = st.selectbox("Select Language", list(TRANSLATIONS.keys()), index=current_lang_idx)
+        new_lang = st.selectbox(t("Select Language"), list(TRANSLATIONS.keys()), index=current_lang_idx)
         
-        if st.button("Apply Language"):
+        if st.button(t("Apply Language")):
             st.session_state.language = new_lang
             st.rerun()
 
         st.markdown("---")
-        st.subheader("📊 Cost Estimation")
+        st.subheader(t("Cost Estimation"))
 
         # Inputs
-        est_location = st.text_input("Location (city/region)")
-        est_crop = st.text_input("Crop name")
-        est_acres = st.number_input("Total acres", min_value=0.0, step=0.1)
-        est_invested = st.number_input("Total invested (₹ or $)", min_value=0.0, step=100.0)
+        est_location = st.text_input(t("Location (city/region)"))
+        est_crop = st.text_input(t("Crop name"))
+        est_acres = st.number_input(t("Total acres"), min_value=0.0, step=0.1)
+        est_invested = st.number_input(t("Total invested (₹ or $)"), min_value=0.0, step=100.0)
 
-        if st.button("Estimate Cost & Profit"):
+        if st.button(t("Estimate Cost & Profit")):
             if not (est_location and est_crop and est_acres > 0):
-                st.error("Please fill all fields correctly.")
+                st.error(t("Please fill all fields correctly."))
             else:
                 # build prompt
                 cost_prompt = f"""
@@ -442,52 +466,52 @@ def sidebar_controls(lang_text):
                 st.session_state.cost_estimation = estimation
 
         st.markdown("---")
-        st.subheader("Quick Agent Actions")
+        st.subheader(t("Quick Agent Actions"))
 
-        selected_action = st.selectbox("Select analysis", list(ACTION_MAP.keys()))
+        selected_action = st.selectbox(t("Select analysis"), list(ACTION_MAP.keys()))
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("Run analysis"):
+            if st.button(t("Run analysis")):
                 queue_task(selected_action, ACTION_MAP[selected_action])
-                st.success(f"Queued: {selected_action}")
+                st.success(f"{t('Queued')}: {t(selected_action)}")
         
         with col2:
-            if st.button("Do all analysis"):
+            if st.button(t("Do all analysis")):
                 for action, prompt in ACTION_MAP.items():
                     queue_task(action, prompt)
-                st.success("All analyses queued!")
+                st.success(t("All analyses queued!"))
 
-        if st.button("Run all core layers"):
+        if st.button(t("Run all core layers")):
             for layer_task in [
                 "Vision Layer", "Climate Layer", "Soil Layer", "Water Layer", "Market Layer", "Execution Layer"
             ]:
                 queue_task(layer_task, f"Generate operational report for {layer_task} with metrics and actions.")
-            st.success("All layer analyses queued.")
+            st.success(t("All layer analyses queued."))
 
         st.markdown("---")
-        st.subheader("Chat Export")
-        if st.button("Export chat as PDF"):
+        st.subheader(t("Chat Export"))
+        if st.button(t("Export chat as PDF")):
             pdf_path = export_chat_to_pdf()
-            st.success(f"Saved: {pdf_path}")
+            st.success(f"{t('Saved')}: {pdf_path}")
 
         st.markdown("---")
-        st.subheader("User")
+        st.subheader(t("User"))
         st.image(st.session_state.photo_url, width=70)
         st.write(st.session_state.username)
 
-        with st.expander("Profile menu"):
-            if st.button("Settings"):
-                st.info("Logout / More available below")
-            st.write("• Logout")
-            st.write("• More")
-            if st.button("Logout"):
+        with st.expander(t("Profile menu")):
+            if st.button(t("Settings")):
+                st.info(t("Logout and more options are available below"))
+            st.write(t("Logout"))
+            st.write(t("More"))
+            if st.button(t("Logout")):
                 st.session_state.logged_in = False
                 st.rerun()
 
 
 def home_page(lang_text):
-    st.title("🌾 Agricultural Super AI Agent")
-    st.session_state.location = st.text_input("Farm location", value=st.session_state.location)
+    st.title(t("Agricultural Super AI Agent"))
+    st.session_state.location = st.text_input(t("Farm location"), value=st.session_state.location)
     location = st.session_state.location # Local reference
     uploaded_image = st.file_uploader(lang_text["upload"], type=["jpg", "jpeg", "png"])
 
@@ -503,16 +527,16 @@ def home_page(lang_text):
             # Sequential Status Messages
             status_container = st.empty()
             with status_container.container():
-                st.markdown("### 🔁 Running full farm intelligence pipeline...")
-                st.write("• Getting location info…")
+                st.markdown(f"### {t('Running full farm intelligence pipeline...')}")
+                st.write(t("Getting location info..."))
                 time.sleep(0.5)
-                st.write("• Fetching local soil reports…")
+                st.write(t("Fetching local soil reports..."))
                 time.sleep(0.5)
-                st.write("• Fetching local water & weather insights…")
+                st.write(t("Fetching local water and weather insights..."))
                 time.sleep(0.5)
-                st.write("• Analyzing image…")
+                st.write(t("Analyzing image..."))
                 time.sleep(0.5)
-                st.write("• Thinking…")
+                st.write(t("Thinking..."))
                 time.sleep(1)
 
             species_info = {"location": location}
@@ -521,78 +545,78 @@ def home_page(lang_text):
             st.session_state.detection_result = result
             
             if "error" not in result:
-                st.success("Analysis Complete!")
+                st.success(t("Analysis Complete!"))
             else:
-                st.error(result["error"])
+                st.error(t(result["error"]))
 
     if st.session_state.detection_result and "error" not in st.session_state.detection_result:
-        res = st.session_state.detection_result
+        res = translate_result_data(st.session_state.detection_result, st.session_state.language)
         
         st.markdown("---")
         # Build Report
-        st.markdown("## 🌾 Full Analysis Report")
+        st.markdown(f"## {t('Full Analysis Report')}")
         
         # Crop & Disease Summary
         col_crop, col_disease = st.columns(2)
         with col_crop:
-            st.markdown(f"### 🧬 Crop Identified")
+            st.markdown(f"### {t('Crop Identified')}")
             st.write(res.get("crop_name", "Unknown"))
         with col_disease:
-            st.markdown(f"### 🛑 Disease Status")
+            st.markdown(f"### {t('Disease Status')}")
             st.write(res.get("disease_name", "Healthy"))
         
         st.markdown("---")
         
-        st.markdown("## 🧠 Condition Assessment")
-        st.write(res.get("description", "No description available."))
+        st.markdown(f"## {t('Condition Assessment')}")
+        st.write(res.get("description", t("No description available.")))
         
-        st.markdown("## 🛠 Actionable Prescription")
-        st.write(res.get("solution", "No solution provided."))
+        st.markdown(f"## {t('Actionable Prescription')}")
+        st.write(res.get("solution", t("No solution provided.")))
         
         st.markdown("---")
         
-        st.markdown("## 📊 Soil & Moisture Insights")
+        st.markdown(f"## {t('Soil and Moisture Insights')}")
         soil = res.get("soil_insights", "")
         if soil:
             st.write(soil)
         else:
-            st.write("No soil insights available.")
+            st.write(t("No soil insights available."))
         
-        st.markdown("## 💧 Water & Weather Outlook")
+        st.markdown(f"## {t('Water and Weather Outlook')}")
         water = res.get("water_forecast", "")
         if water:
             st.write(water)
         else:
-            st.write("No water forecast available.")
+            st.write(t("No water forecast available."))
         
-        st.markdown("## 📈 Risk & Urgency")
+        st.markdown(f"## {t('Risk and Urgency')}")
         risk = res.get("risk_score", "None")
         if risk == "High":
-             st.error(f"**Risk Level:** {risk}")
+             st.error(f"**{t('Risk Level')}:** {risk}")
         elif risk == "Medium":
-             st.warning(f"**Risk Level:** {risk}")
+             st.warning(f"**{t('Risk Level')}:** {risk}")
         else:
-             st.success(f"**Risk Level:** {risk}")
+             st.success(f"**{t('Risk Level')}:** {risk}")
         
         st.markdown("---")
         
         # Fertilizer Suggestion Table
-        st.markdown("## 🧪 Fertilizer Recommendations (Search Online)")
+        st.markdown(f"## {t('Fertilizer Recommendations')}")
         fertilizers = res.get("fertilizers", "")
         if fertilizers:
             st.write(fertilizers)
             st.markdown(
-                "<i>Use these names to search online for suppliers, prices, and local availability.</i>",
+                f"<i>{t('Use these names to search online for suppliers, prices, and local availability.')}</i>",
                 unsafe_allow_html=True
             )
         else:
-            st.write("No fertilizer recommendations available.")
+            st.write(t("No fertilizer recommendations available."))
         
         st.markdown("---")
 
 
 def chat_page():
-    st.title("💬 Agent Chat")
+    st.title(t("Agent Chat"))
     
     # Chat container for scrollable messages
     chat_container = st.container()
@@ -601,14 +625,14 @@ def chat_page():
         for msg in st.session_state.chat_history:
             with st.chat_message(msg['role']):
                 st.markdown(f"*{msg['time']}*")
-                st.write(msg['text'])
+                st.write(t(msg['text']))
 
-    query = st.chat_input("Ask about farming, costs, irrigation, market, disease...")
+    query = st.chat_input(t("Ask about farming, costs, irrigation, market, disease..."))
     if query:
         st.session_state.chat_history.append(
             {"time": datetime.now().strftime("%H:%M:%S"), "role": "user", "text": query}
         )
-        with st.spinner("Agent is thinking..."):
+        with st.spinner(t("Agent is thinking...")):
             answer = call_openrouter(
                 [
                     {"role": "system", "content": "You are a practical agricultural AI agent."},
@@ -622,53 +646,53 @@ def chat_page():
 
 
 def shop_or_doctors_page(title, actor, lang_text):
-    st.title(title)
+    st.title(t(title))
     col_in1, col_in2 = st.columns(2)
     with col_in1:
-        crop = st.text_input(f"{actor}: Crop name")
+        crop = st.text_input(f"{t(actor)}: {t('Crop name')}")
     with col_in2:
-        requirement = st.text_input(f"{actor}: Requirement")
+        requirement = st.text_input(f"{t(actor)}: {t('Requirement')}")
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(f"Search {actor}"):
-            with st.spinner(f"Finding the best {actor.lower()}s for you..."):
+        if st.button(f"{t('Search')} {t(actor)}"):
+            with st.spinner(f"{t('Finding the best options for you...')}"):
                 location = st.session_state.get('location', 'unknown location')
                 search_prompt = f"As an agricultural AI, find/recommend 5 {actor.lower()}s or services for {crop} with requirement: {requirement} near {location}. Provide name, contact detail (simulated), and specialized service. Format as a clean list."
                 response = call_openrouter([{"role": "user", "content": search_prompt}])
                 if "error" not in response.lower() or "401" not in response:
-                    st.success(f"Found {actor}s!")
-                    st.markdown(response)
+                    st.success(f"{t('Found')} {t(actor)}!")
+                    st.markdown(t(response))
                 else:
-                    st.error(f"Search failed: {response}")
+                    st.error(f"{t('Search failed')}: {t(response)}")
 
     with col2:
-        if st.button("Show all nearby"):
-            with st.spinner(f"Listing all major {actor.lower()} options..."):
+        if st.button(t("Show all nearby")):
+            with st.spinner(t("Listing all major options...")):
                 search_prompt = f"List all major {actor.lower()} options for {crop} farming. Include pricing estimates and usage summary."
                 response = call_openrouter([{"role": "user", "content": search_prompt}])
-                st.markdown(response)
+                st.markdown(t(response))
 
 
 def contact_page():
-    st.title("📞 Contact")
+    st.title(t("Contact"))
     st.markdown(
-        """
-        **AI Farm Agent Team**  
-        Email: support@aifarmagent.local  
-        Services: Vision, Climate, Soil, Water, Market, Execution  
+        f"""
+        **{t('AI Farm Agent Team')}**  
+        {t('Email')}: support@aifarmagent.local  
+        {t('Services')}: {t('Vision, Climate, Soil, Water, Market, Execution')}  
         """
     )
 
 
 def show_reports_panel():
-    st.markdown("## 📊 Generated Reports")
+    st.markdown(f"## {t('Generated Reports')}")
     if not st.session_state.reports:
-        st.info("No reports yet. Run analyses from the left panel.")
+        st.info(t("No reports yet. Run analyses from the left panel."))
         return
     for report in st.session_state.reports[:12]:
         with st.expander(f"{report['time']} — {report['title']}"):
-            st.write(report["content"])
+            st.write(t(report["content"]))
 
 
 def main():
@@ -683,7 +707,7 @@ def main():
     apply_local_font(st.session_state.language)
 
     run_all_background_tasks()
-    st.markdown(f"### 🧠 Agent Status: {st.session_state.agent_status}")
+    st.markdown(f"### {t('Agent Status')}: {t(st.session_state.agent_status)}")
 
     # Navigation Buttons instead of radio
     cols = st.columns(5)
@@ -710,7 +734,7 @@ def main():
     if st.session_state.cost_estimation:
         est = st.session_state.cost_estimation
         st.markdown("---")
-        st.markdown("## 📊 Cost & Profit Estimation Report")
+        st.markdown(f"## {t('Cost and Profit Estimation Report')}")
 
         # Try JSON parse if AI returned text
         try:
@@ -722,27 +746,28 @@ def main():
             
             est_json = json.loads(est)
         except:
-            st.write("⚠️ Could not parse estimation. Raw output:")
-            st.write(est)
+            st.write(t("Could not parse estimation. Raw output:"))
+            st.write(t(est))
             est_json = None
 
         if est_json:
-            st.write("### 📈 Local Market Price")
+            est_json = translate_result_data(est_json, st.session_state.language)
+            st.write(f"### {t('Local Market Price')}")
             st.write(est_json.get("market_price","N/A"))
 
-            st.write("### 📅 Price Trend & Best Months")
+            st.write(f"### {t('Price Trend and Best Months')}")
             st.write(est_json.get("price_trend",""))
-            st.write("Best Months to Sell:", est_json.get("best_months", []))
+            st.write(f"{t('Best Months to Sell')}: {est_json.get('best_months', [])}")
 
-            st.write("### 💰 Cost & Revenue Breakdown")
-            st.write(f"Total Production Cost: {est_json.get('total_cost','')}")
-            st.write(f"Expected Revenue: {est_json.get('expected_revenue','')}")
-            st.write(f"Profit/Loss: {est_json.get('profit_or_loss','')}")
+            st.write(f"### {t('Cost and Revenue Breakdown')}")
+            st.write(f"{t('Total Production Cost')}: {est_json.get('total_cost','')}")
+            st.write(f"{t('Expected Revenue')}: {est_json.get('expected_revenue','')}")
+            st.write(f"{t('Profit or Loss')}: {est_json.get('profit_or_loss','')}")
 
-            st.write("### 🚚 Travel Costs")
+            st.write(f"### {t('Travel Costs')}")
             st.write(est_json.get("travel_costs",""))
 
-            st.write("### 🧠 Recommendation")
+            st.write(f"### {t('Recommendation')}")
             st.info(est_json.get("recommendation",""))
 
     show_reports_panel()
