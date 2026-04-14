@@ -15,9 +15,9 @@ from PIL import Image
 # API key intentionally kept in-code per requirement.
 NVIDIA_API_KEY = "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"
 NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
-MODEL_NAME = "mistral-large-3-675b-instruct-2512"
-VISION_MODEL = "mistral-large-3-675b-instruct-2512"
-REASONING_MODEL = "mistral-large-3-675b-instruct-2512"
+MODEL_NAME = "mistralai/mistral-large-3-675b-instruct-2512"
+VISION_MODEL = "mistralai/mistral-large-3-675b-instruct-2512"
+REASONING_MODEL = "deepseek-ai/deepseek-v3.1-terminus"
 SARVAM_API_KEY = "sk_w2ff5un8_NwCt6eC0gfgjKezrySpjUCKn"
 SARVAM_TRANSLATE_URL = "https://api.sarvam.ai/translate"
 USER_DB = "users.json"
