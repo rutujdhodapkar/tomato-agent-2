@@ -13,7 +13,7 @@ from PIL import Image
 
 # ================= CONFIG ================= #
 # API key intentionally kept in-code per requirement.
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL_NAME = "nvidia/nemotron-nano-12b-v2-vl:free"
 VISION_MODEL = "nvidia/nemotron-nano-12b-v2-vl:free"
