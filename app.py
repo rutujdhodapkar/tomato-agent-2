@@ -4,64 +4,82 @@ import json
 import os
 import random
 import re
-import threading
 import time
 from datetime import datetime
 
 import requests
 import streamlit as st
+from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.pyplot as plt
 from PIL import Image
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
 
 # ============================================================
 # CONFIG
 # ============================================================
 
-st.set_page_config(
-    page_title="Agri Super Agent",
-    layout="wide",
+APP_TITLE = "Agri Super Agent"
+
+MODEL_API_KEY = (
+    st.secrets.get("MODEL_API_KEY", None)
+    or os.getenv("MODEL_API_KEY")
+)
+
+MODEL_API_URL = (
+    st.secrets.get(
+        "MODEL_API_URL",
+        "https://integrate.api.nvidia.com/v1/chat/completions"
+    )
+    or os.getenv("MODEL_API_URL")
+)
+
+MODEL_NAME = (
+    st.secrets.get(
+        "MODEL_NAME",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    )
+    or os.getenv(
+        "MODEL_NAME",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+    )
+)
+
+REASONING_MODEL = (
+    st.secrets.get(
+        "REASONING_MODEL",
+        "nvidia/nemotron-3-ultra-550b-a55b"
+    )
+    or os.getenv(
+        "REASONING_MODEL",
+        "nvidia/nemotron-3-ultra-550b-a55b"
+    )
+)
+
+SARVAM_API_KEY = (
+    st.secrets.get("SARVAM_API_KEY", None)
+    or os.getenv("SARVAM_API_KEY")
+)
+
+SARVAM_TRANSLATE_URL = (
+    st.secrets.get(
+        "SARVAM_TRANSLATE_URL",
+        "https://api.sarvam.ai/translate"
+    )
+    or os.getenv(
+        "SARVAM_TRANSLATE_URL",
+        "https://api.sarvam.ai/translate"
+    )
 )
 
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
 
-REQUEST_LOCK = threading.Lock()
-
-TEMPORARY_STATUS_CODES = {429, 500, 502, 503, 504}
-
-
-def get_config(name, default=""):
-    """
-    Reads configuration from Streamlit secrets first,
-    then environment variables.
-    """
-    try:
-        return st.secrets.get(name, os.getenv(name, default))
-    except Exception:
-        return os.getenv(name, default)
-
-
-PRIMARY_CONFIG = {
-    "api_key": get_config("AI_API_KEY"),
-    "api_url": get_config("AI_API_URL"),
-    "model": get_config("AI_MODEL"),
-}
-
-FALLBACK_CONFIG = {
-    "api_key": get_config("AI_FALLBACK_API_KEY"),
-    "api_url": get_config("AI_FALLBACK_API_URL"),
-    "model": get_config("AI_FALLBACK_MODEL"),
-}
-
-TRANSLATE_API_KEY = get_config("TRANSLATE_API_KEY")
-TRANSLATE_API_URL = get_config("TRANSLATE_API_URL")
+MAX_RETRIES = 5
+REQUEST_TIMEOUT = 120
 
 
 # ============================================================
-# LANGUAGE
+# TRANSLATIONS
 # ============================================================
 
 TRANSLATIONS = {
@@ -71,47 +89,390 @@ TRANSLATIONS = {
         "shops": "Shop",
         "doctors": "Doctors",
         "contact": "Contact",
+
         "login": "Login",
         "username": "Username",
         "password": "Password",
+        "continue": "Continue",
+        "login_success": "Login successful",
+        "account_created": "Account created",
+
         "upload": "Upload Leaf Image",
         "analyze": "Analyze",
+
+        "agent_control": "Agent Control Panel",
+        "select_language": "Select Language",
+        "apply_language": "Apply Language",
+
+        "farm_location": "Farm location",
+
+        "agent_status": "Agent Status",
+        "idle": "Idle",
+
+        "running_pipeline": "Running full farm intelligence pipeline...",
+        "getting_location": "Getting location information...",
+        "fetching_soil": "Fetching soil insights...",
+        "fetching_water": "Fetching water and weather insights...",
+        "analyzing_image": "Analyzing image...",
+        "thinking": "Thinking...",
+
+        "analysis_complete": "Analysis Complete!",
+        "full_analysis": "Full Analysis Report",
+
+        "crop_identified": "Crop Identified",
+        "disease_status": "Disease Status",
+        "condition_assessment": "Condition Assessment",
+        "actionable_prescription": "Actionable Prescription",
+
+        "soil_moisture": "Soil and Moisture Insights",
+        "water_weather": "Water and Weather Outlook",
+
+        "risk_urgency": "Risk and Urgency",
+        "risk_level": "Risk Level",
+
+        "fertilizer_recommendations": "Fertilizer Recommendations",
+
+        "no_description": "No description available.",
+        "no_solution": "No solution provided.",
+        "no_soil": "No soil insights available.",
+        "no_water": "No water forecast available.",
+        "no_fertilizer": "No fertilizer recommendations available.",
+
+        "quick_actions": "Quick Agent Actions",
+        "select_analysis": "Select analysis",
+        "run_analysis": "Run analysis",
+        "do_all_analysis": "Do all analysis",
+        "run_core_layers": "Run all core layers",
+        "queued": "Queued",
+        "all_queued": "All analyses queued!",
+        "layers_queued": "All layer analyses queued.",
+
+        "cost_estimation": "Cost Estimation",
+        "location_city": "Location (city/region)",
+        "crop_name": "Crop name",
+        "total_acres": "Total acres",
+        "total_invested": "Total invested",
+        "estimate_profit": "Estimate Cost & Profit",
+        "fill_fields": "Please fill all fields correctly.",
+
+        "chat_export": "Chat Export",
+        "export_pdf": "Export chat as PDF",
+        "saved": "Saved",
+
+        "user": "User",
+        "profile_menu": "Profile menu",
+        "settings": "Settings",
+        "logout": "Logout",
+
+        "agent_chat": "Agent Chat",
+        "chat_placeholder": (
+            "Ask about farming, costs, irrigation, market, disease..."
+        ),
+        "agent_thinking": "Agent is thinking...",
+
+        "shop_title": "Fertilizer Shop",
+        "doctor_title": "Agricultural Doctors",
+        "requirement": "Requirement",
+        "search": "Search",
+        "search_failed": "Search failed",
+        "found": "Found",
+        "show_nearby": "Show all nearby",
+        "finding_options": "Finding the best options for you...",
+        "listing_options": "Listing major options...",
+
+        "contact_title": "Contact",
+        "team": "AI Farm Agent Team",
+        "email": "Email",
+        "services": "Services",
+
+        "generated_reports": "Generated Reports",
+        "no_reports": (
+            "No reports yet. Run analyses from the left panel."
+        ),
+
+        "cost_report": "Cost and Profit Estimation Report",
+        "market_price": "Local Market Price",
+        "price_trend": "Price Trend and Best Months",
+        "best_months": "Best Months to Sell",
+        "cost_revenue": "Cost and Revenue Breakdown",
+        "production_cost": "Total Production Cost",
+        "expected_revenue": "Expected Revenue",
+        "profit_loss": "Profit or Loss",
+        "travel_costs": "Travel Costs",
+        "recommendation": "Recommendation",
+
+        "unknown": "Unknown",
+        "healthy": "Healthy",
     },
+
     "Hindi": {
         "home": "होम",
         "chat": "चैट",
         "shops": "दुकान",
         "doctors": "डॉक्टर्स",
         "contact": "संपर्क",
+
         "login": "लॉगिन",
         "username": "यूज़रनेम",
         "password": "पासवर्ड",
-        "upload": "पत्ता अपलोड करें",
-        "analyze": "विश्लेषण",
+        "continue": "जारी रखें",
+        "login_success": "लॉगिन सफल रहा",
+        "account_created": "अकाउंट बनाया गया",
+
+        "upload": "पत्ते की तस्वीर अपलोड करें",
+        "analyze": "विश्लेषण करें",
+
+        "agent_control": "एजेंट कंट्रोल पैनल",
+        "select_language": "भाषा चुनें",
+        "apply_language": "भाषा लागू करें",
+
+        "farm_location": "खेत का स्थान",
+
+        "agent_status": "एजेंट की स्थिति",
+        "idle": "निष्क्रिय",
+
+        "running_pipeline": "पूर्ण कृषि इंटेलिजेंस पाइपलाइन चल रही है...",
+        "getting_location": "स्थान की जानकारी प्राप्त की जा रही है...",
+        "fetching_soil": "मिट्टी की जानकारी प्राप्त की जा रही है...",
+        "fetching_water": "पानी और मौसम की जानकारी प्राप्त की जा रही है...",
+        "analyzing_image": "तस्वीर का विश्लेषण किया जा रहा है...",
+        "thinking": "सोच रहा है...",
+
+        "analysis_complete": "विश्लेषण पूरा हुआ!",
+        "full_analysis": "पूर्ण विश्लेषण रिपोर्ट",
+
+        "crop_identified": "पहचानी गई फसल",
+        "disease_status": "रोग की स्थिति",
+        "condition_assessment": "स्थिति का आकलन",
+        "actionable_prescription": "कार्रवाई योग्य समाधान",
+
+        "soil_moisture": "मिट्टी और नमी की जानकारी",
+        "water_weather": "पानी और मौसम का पूर्वानुमान",
+
+        "risk_urgency": "जोखिम और प्राथमिकता",
+        "risk_level": "जोखिम स्तर",
+
+        "fertilizer_recommendations": "उर्वरक सिफारिशें",
+
+        "no_description": "कोई विवरण उपलब्ध नहीं है।",
+        "no_solution": "कोई समाधान उपलब्ध नहीं है।",
+        "no_soil": "मिट्टी की जानकारी उपलब्ध नहीं है।",
+        "no_water": "पानी का पूर्वानुमान उपलब्ध नहीं है।",
+        "no_fertilizer": "उर्वरक सिफारिश उपलब्ध नहीं है।",
+
+        "quick_actions": "त्वरित एजेंट कार्य",
+        "select_analysis": "विश्लेषण चुनें",
+        "run_analysis": "विश्लेषण चलाएं",
+        "do_all_analysis": "सभी विश्लेषण चलाएं",
+        "run_core_layers": "सभी मुख्य लेयर चलाएं",
+        "queued": "कतार में जोड़ा गया",
+        "all_queued": "सभी विश्लेषण कतार में हैं!",
+        "layers_queued": "सभी लेयर विश्लेषण कतार में हैं।",
+
+        "cost_estimation": "लागत अनुमान",
+        "location_city": "स्थान (शहर/क्षेत्र)",
+        "crop_name": "फसल का नाम",
+        "total_acres": "कुल एकड़",
+        "total_invested": "कुल निवेश",
+        "estimate_profit": "लागत और लाभ का अनुमान",
+        "fill_fields": "कृपया सभी जानकारी सही भरें।",
+
+        "chat_export": "चैट एक्सपोर्ट",
+        "export_pdf": "चैट को PDF में एक्सपोर्ट करें",
+        "saved": "सेव किया गया",
+
+        "user": "उपयोगकर्ता",
+        "profile_menu": "प्रोफाइल मेनू",
+        "settings": "सेटिंग्स",
+        "logout": "लॉगआउट",
+
+        "agent_chat": "एजेंट चैट",
+        "chat_placeholder": (
+            "खेती, लागत, सिंचाई, बाजार या रोग के बारे में पूछें..."
+        ),
+        "agent_thinking": "एजेंट सोच रहा है...",
+
+        "shop_title": "उर्वरक दुकान",
+        "doctor_title": "कृषि डॉक्टर",
+        "requirement": "आवश्यकता",
+        "search": "खोजें",
+        "search_failed": "खोज असफल",
+        "found": "मिल गया",
+        "show_nearby": "सभी नजदीकी विकल्प दिखाएं",
+        "finding_options": "आपके लिए सर्वोत्तम विकल्प खोजे जा रहे हैं...",
+        "listing_options": "मुख्य विकल्प दिखाए जा रहे हैं...",
+
+        "contact_title": "संपर्क",
+        "team": "AI फार्म एजेंट टीम",
+        "email": "ईमेल",
+        "services": "सेवाएं",
+
+        "generated_reports": "तैयार रिपोर्टें",
+        "no_reports": "अभी कोई रिपोर्ट नहीं है।",
+
+        "cost_report": "लागत और लाभ अनुमान रिपोर्ट",
+        "market_price": "स्थानीय बाजार मूल्य",
+        "price_trend": "मूल्य प्रवृत्ति और सर्वोत्तम महीने",
+        "best_months": "बेचने के सर्वोत्तम महीने",
+        "cost_revenue": "लागत और आय विवरण",
+        "production_cost": "कुल उत्पादन लागत",
+        "expected_revenue": "अपेक्षित आय",
+        "profit_loss": "लाभ या हानि",
+        "travel_costs": "यात्रा लागत",
+        "recommendation": "सिफारिश",
+
+        "unknown": "अज्ञात",
+        "healthy": "स्वस्थ",
     },
+
     "Marathi": {
         "home": "मुख्यपृष्ठ",
         "chat": "चॅट",
         "shops": "दुकान",
         "doctors": "डॉक्टर्स",
         "contact": "संपर्क",
-        "login": "लॉगिन",
-        "username": "वापरकर्ता नाव",
-        "password": "पासवर्ड",
-        "upload": "पान अपलोड करा",
-        "analyze": "विश्लेषण",
-    },
-}
 
-LANGUAGE_CODE_MAP = {
-    "English": "en-IN",
-    "Hindi": "hi-IN",
-    "Marathi": "mr-IN",
+        "login": "लॉगिन",
+        "username": "वापरकर्तानाव",
+        "password": "पासवर्ड",
+        "continue": "पुढे जा",
+        "login_success": "लॉगिन यशस्वी झाले",
+        "account_created": "खाते तयार केले",
+
+        "upload": "पानाचा फोटो अपलोड करा",
+        "analyze": "विश्लेषण करा",
+
+        "agent_control": "एजंट नियंत्रण पॅनेल",
+        "select_language": "भाषा निवडा",
+        "apply_language": "भाषा लागू करा",
+
+        "farm_location": "शेतीचे स्थान",
+
+        "agent_status": "एजंटची स्थिती",
+        "idle": "निष्क्रिय",
+
+        "running_pipeline": "पूर्ण कृषी इंटेलिजेंस पाइपलाइन सुरू आहे...",
+        "getting_location": "स्थानाची माहिती घेत आहे...",
+        "fetching_soil": "मातीची माहिती घेत आहे...",
+        "fetching_water": "पाणी आणि हवामानाची माहिती घेत आहे...",
+        "analyzing_image": "प्रतिमेचे विश्लेषण सुरू आहे...",
+        "thinking": "विचार करत आहे...",
+
+        "analysis_complete": "विश्लेषण पूर्ण झाले!",
+        "full_analysis": "संपूर्ण विश्लेषण अहवाल",
+
+        "crop_identified": "ओळखलेले पीक",
+        "disease_status": "रोगाची स्थिती",
+        "condition_assessment": "स्थितीचे मूल्यांकन",
+        "actionable_prescription": "कृतीयोग्य उपाय",
+
+        "soil_moisture": "माती आणि ओलाव्याची माहिती",
+        "water_weather": "पाणी आणि हवामान अंदाज",
+
+        "risk_urgency": "धोका आणि तातडी",
+        "risk_level": "धोका स्तर",
+
+        "fertilizer_recommendations": "खतांच्या शिफारसी",
+
+        "no_description": "कोणतेही वर्णन उपलब्ध नाही.",
+        "no_solution": "कोणताही उपाय उपलब्ध नाही.",
+        "no_soil": "मातीची माहिती उपलब्ध नाही.",
+        "no_water": "पाण्याचा अंदाज उपलब्ध नाही.",
+        "no_fertilizer": "खतांची शिफारस उपलब्ध नाही.",
+
+        "quick_actions": "त्वरित एजंट क्रिया",
+        "select_analysis": "विश्लेषण निवडा",
+        "run_analysis": "विश्लेषण सुरू करा",
+        "do_all_analysis": "सर्व विश्लेषण करा",
+        "run_core_layers": "सर्व मुख्य स्तर सुरू करा",
+        "queued": "रांगेत जोडले",
+        "all_queued": "सर्व विश्लेषणे रांगेत आहेत!",
+        "layers_queued": "सर्व स्तरांचे विश्लेषण रांगेत आहे.",
+
+        "cost_estimation": "खर्चाचा अंदाज",
+        "location_city": "स्थान (शहर/प्रदेश)",
+        "crop_name": "पिकाचे नाव",
+        "total_acres": "एकूण एकर",
+        "total_invested": "एकूण गुंतवणूक",
+        "estimate_profit": "खर्च आणि नफा अंदाज",
+        "fill_fields": "कृपया सर्व माहिती योग्य भरा.",
+
+        "chat_export": "चॅट एक्सपोर्ट",
+        "export_pdf": "चॅट PDF म्हणून एक्सपोर्ट करा",
+        "saved": "जतन केले",
+
+        "user": "वापरकर्ता",
+        "profile_menu": "प्रोफाइल मेनू",
+        "settings": "सेटिंग्ज",
+        "logout": "लॉगआउट",
+
+        "agent_chat": "एजंट चॅट",
+        "chat_placeholder": (
+            "शेती, खर्च, सिंचन, बाजार किंवा रोगाबद्दल विचारा..."
+        ),
+        "agent_thinking": "एजंट विचार करत आहे...",
+
+        "shop_title": "खत दुकान",
+        "doctor_title": "कृषी डॉक्टर",
+        "requirement": "आवश्यकता",
+        "search": "शोधा",
+        "search_failed": "शोध अयशस्वी",
+        "found": "सापडले",
+        "show_nearby": "जवळील सर्व पर्याय दाखवा",
+        "finding_options": "तुमच्यासाठी सर्वोत्तम पर्याय शोधत आहे...",
+        "listing_options": "मुख्य पर्याय दाखवत आहे...",
+
+        "contact_title": "संपर्क",
+        "team": "AI फार्म एजंट टीम",
+        "email": "ईमेल",
+        "services": "सेवा",
+
+        "generated_reports": "तयार केलेले अहवाल",
+        "no_reports": "अजून कोणतेही अहवाल नाहीत.",
+
+        "cost_report": "खर्च आणि नफा अंदाज अहवाल",
+        "market_price": "स्थानिक बाजार भाव",
+        "price_trend": "भावाचा कल आणि सर्वोत्तम महिने",
+        "best_months": "विक्रीसाठी सर्वोत्तम महिने",
+        "cost_revenue": "खर्च आणि उत्पन्न तपशील",
+        "production_cost": "एकूण उत्पादन खर्च",
+        "expected_revenue": "अपेक्षित उत्पन्न",
+        "profit_loss": "नफा किंवा तोटा",
+        "travel_costs": "प्रवास खर्च",
+        "recommendation": "शिफारस",
+
+        "unknown": "अज्ञात",
+        "healthy": "निरोगी",
+    },
 }
 
 
 # ============================================================
-# ACTIONS
+# FONT SETTINGS
+# ============================================================
+
+FONT_MAP = {
+    "English": "Arial, sans-serif",
+    "Hindi": "'Nirmala UI', 'Mangal', sans-serif",
+    "Marathi": "'Noto Sans Devanagari', 'Mangal', sans-serif",
+}
+
+
+# ============================================================
+# STABLE INTERNAL NAVIGATION
+# ============================================================
+
+NAV_ITEMS = [
+    ("home", "home"),
+    ("chat", "chat"),
+    ("shops", "shops"),
+    ("doctors", "doctors"),
+    ("contact", "contact"),
+]
+
+
+# ============================================================
+# AGENT ACTIONS
 # ============================================================
 
 ACTION_MAP = {
@@ -122,47 +483,111 @@ ACTION_MAP = {
         "Predict farm water requirements for the next 14 days.",
 
     "AI-driven irrigation schedule":
-        "Create an irrigation schedule with time windows and water quantities.",
+        "Create an irrigation schedule with time windows.",
 
     "Drought early warning":
-        "Generate drought early warning indicators for the next 30 days.",
+        "Generate drought early warning indicators.",
+
+    "Water waste optimization %":
+        "Estimate water waste and optimization opportunities.",
 
     "NPK prediction":
-        "Estimate nitrogen, phosphorus, and potassium status and recommend corrective actions.",
+        "Estimate nitrogen, phosphorus and potassium levels.",
 
     "pH imbalance detection":
-        "Analyze possible soil pH imbalance and recommend a treatment protocol.",
+        "Detect possible soil pH imbalance and recommend treatment.",
 
     "Nutrient deficiency fusion":
-        "Identify likely nutrient deficiencies using available crop and soil information.",
+        "Identify likely nutrient deficiencies using available farm context.",
 
     "Fertilizer recommendation":
-        "Generate a fertilizer recommendation plan for the farm.",
+        "Generate fertilizer recommendations for the farm.",
+
+    "Long-term soil health score":
+        "Estimate long-term soil health and yearly improvement plan.",
+
+    "Insect classification":
+        "Identify likely insects and estimate agricultural risk.",
+
+    "Pest density estimation":
+        "Estimate pest density and intervention threshold.",
+
+    "Swarm detection":
+        "Detect possible swarm risk and generate an alert plan.",
+
+    "Migration pattern prediction":
+        "Predict possible pest migration patterns.",
+
+    "Smart pesticide timing":
+        "Recommend the best timing for pesticide application.",
+
+    "Satellite imagery integration":
+        "Create a satellite imagery integration strategy.",
+
+    "Growth stage tracking":
+        "Track crop growth stages and next milestones.",
+
+    "Production estimate per acre":
+        "Estimate production per acre with confidence ranges.",
+
+    "Profit forecast":
+        "Generate a profit forecast using yield, costs and prices.",
+
+    "Market price integration":
+        "Analyze market trends and suggest selling timing.",
+
+    "Camera to recommendation pipeline":
+        "Design a camera-to-analysis-to-recommendation pipeline.",
+
+    "Irrigation valve control":
+        "Generate irrigation valve control logic and failsafes.",
+
+    "Sprayer control":
+        "Generate a smart sprayer control strategy.",
+
+    "Drone-based spraying":
+        "Plan a drone spraying route and timing.",
+
+    "Automated farm reporting":
+        "Create an automated farm reporting system.",
+
+    "Multi-modal fusion model":
+        "Design a fusion model using Vision, Weather, Soil and Time.",
 
     "Disease risk 7-30 days":
         "Estimate disease risk for the next 7 to 30 days.",
 
-    "Growth stage tracking":
-        "Analyze crop growth stage and identify upcoming milestones.",
+    "Frost risk alerts":
+        "Predict frost risk and preventive actions.",
 
-    "Production estimate per acre":
-        "Estimate crop production per acre with uncertainty and key assumptions.",
+    "Heat stress prediction":
+        "Predict heat stress windows and protection actions.",
 
-    "Profit forecast":
-        "Generate a practical profit forecast using production, cost, and market assumptions.",
+    "Crop growth stage mapping":
+        "Generate crop growth stage mapping.",
 
-    "Camera to recommendation pipeline":
-        "Design an end-to-end camera, analysis, recommendation, and automation pipeline.",
-
-    "Automated farm reporting":
-        "Create an automated farm reporting structure with KPIs and recommended actions.",
-
-    "Multi-modal fusion model":
-        "Design a multimodal agricultural AI system using image, weather, soil, and time data.",
+    "Price prediction AI":
+        "Estimate crop production cost and expected market profit.",
 
     "Full Agent Pipeline":
-        "Build a complete end-to-end agricultural intelligence pipeline.",
+        "Design an end-to-end agricultural AI agent pipeline.",
 }
+
+
+# ============================================================
+# TRANSLATION HELPER
+# ============================================================
+
+def tr(key, fallback=None):
+    language = st.session_state.get("language", "English")
+
+    return TRANSLATIONS.get(
+        language,
+        TRANSLATIONS["English"]
+    ).get(
+        key,
+        fallback if fallback is not None else key
+    )
 
 
 # ============================================================
@@ -170,92 +595,176 @@ ACTION_MAP = {
 # ============================================================
 
 def ensure_session_defaults():
-
     defaults = {
         "language": "English",
         "logged_in": False,
         "username": "",
-        "menu_choice": "Home",
-        "location": "",
-        "chat_history": [],
+        "photo_url":
+            "https://api.dicebear.com/8.x/adventurer/png?seed=Farmer",
+
+        "agent_status": "Idle",
         "task_queue": [],
         "reports": [],
-        "agent_status": "Idle",
+        "chat_history": [],
         "detection_result": None,
+
+        # IMPORTANT:
+        # This is an INTERNAL ID, never a translated label.
+        "menu_choice": "home",
+
+        "location": "",
         "cost_estimation": None,
-        "processing_tasks": False,
     }
 
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
+    # Migration for old sessions
+    old_menu_labels = {
+        "Home": "home",
+        "होम": "home",
+        "मुख्यपृष्ठ": "home",
+
+        "Chat": "chat",
+        "चैट": "chat",
+        "चॅट": "chat",
+
+        "Shop": "shops",
+        "दुकान": "shops",
+
+        "Doctors": "doctors",
+        "डॉक्टर्स": "doctors",
+
+        "Contact": "contact",
+        "संपर्क": "contact",
+    }
+
+    st.session_state.menu_choice = old_menu_labels.get(
+        st.session_state.menu_choice,
+        st.session_state.menu_choice
+    )
+
+    valid_pages = [
+        "home",
+        "chat",
+        "shops",
+        "doctors",
+        "contact",
+    ]
+
+    if st.session_state.menu_choice not in valid_pages:
+        st.session_state.menu_choice = "home"
+
 
 # ============================================================
-# SAFE JSON PARSER
+# FONT
 # ============================================================
 
-def parse_json_response(text):
+def apply_local_font():
+    language = st.session_state.get("language", "English")
 
-    if isinstance(text, dict):
+    font_family = FONT_MAP.get(
+        language,
+        FONT_MAP["English"]
+    )
+
+    st.markdown(
+        f"""
+        <style>
+            html,
+            body,
+            [class*="css"],
+            .stApp {{
+                font-family: {font_family};
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
+# API RESPONSE HELPERS
+# ============================================================
+
+def extract_message_content(data):
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return None
+
+
+def clean_json_text(text):
+    if not isinstance(text, str):
         return text
 
-    if not isinstance(text, str):
-        raise ValueError("Response is not text.")
+    text = text.strip()
 
-    cleaned = text.strip()
-
-    cleaned = re.sub(
-        r"^```(?:json)?\s*",
+    text = re.sub(
+        r"^```json\s*",
         "",
-        cleaned,
-        flags=re.IGNORECASE,
+        text,
+        flags=re.IGNORECASE
     )
 
-    cleaned = re.sub(
+    text = re.sub(
+        r"^```\s*",
+        "",
+        text
+    )
+
+    text = re.sub(
         r"\s*```$",
         "",
-        cleaned,
+        text
     )
 
+    return text.strip()
+
+
+def safe_json_loads(text):
+    text = clean_json_text(text)
+
     try:
-        return json.loads(cleaned)
+        return json.loads(text)
     except json.JSONDecodeError:
         pass
 
     match = re.search(
         r"\{.*\}",
-        cleaned,
-        flags=re.DOTALL,
+        text,
+        flags=re.DOTALL
     )
 
     if match:
-        return json.loads(match.group())
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
 
-    raise ValueError("Could not find valid JSON in response.")
+    raise ValueError("Could not parse valid JSON")
 
 
 # ============================================================
-# GENERIC AI REQUEST LAYER
+# MODEL REQUEST WITH RETRY
 # ============================================================
 
-def send_request(messages, config, max_tokens=1200):
+def call_model(messages, model=None):
+    if not MODEL_API_KEY:
+        return (
+            "API key is missing. "
+            "Add MODEL_API_KEY to Streamlit secrets or environment variables."
+        )
 
-    api_key = config.get("api_key", "")
-    api_url = config.get("api_url", "")
-    model = config.get("model", "")
+    if not MODEL_API_URL:
+        return "MODEL_API_URL is missing."
 
-    if not api_key:
-        return None, "Missing API key."
-
-    if not api_url:
-        return None, "Missing API URL."
-
-    if not model:
-        return None, "Missing model name."
+    if model is None:
+        model = MODEL_NAME
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {MODEL_API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
@@ -264,210 +773,151 @@ def send_request(messages, config, max_tokens=1200):
         "model": model,
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": max_tokens,
     }
 
-    try:
+    retryable_status_codes = {
+        408,
+        409,
+        429,
+        500,
+        502,
+        503,
+        504,
+    }
 
-        # One request at a time per app process.
-        with REQUEST_LOCK:
+    last_error = "Unknown error"
 
+    for attempt in range(MAX_RETRIES):
+        try:
             response = requests.post(
-                api_url,
+                MODEL_API_URL,
                 headers=headers,
                 json=payload,
-                timeout=180,
+                timeout=REQUEST_TIMEOUT,
             )
 
-        return response, None
-
-    except requests.exceptions.Timeout:
-        return None, "Request timed out."
-
-    except requests.exceptions.RequestException as error:
-        return None, f"Network error: {str(error)}"
-
-
-def extract_response_content(response):
-
-    try:
-        data = response.json()
-    except ValueError:
-        return None, f"Non-JSON response: {response.text[:500]}"
-
-    try:
-        content = (
-            data["choices"][0]
-            ["message"]
-            ["content"]
-        )
-
-        if isinstance(content, str):
-            return content, None
-
-        return json.dumps(content), None
-
-    except (KeyError, IndexError, TypeError):
-
-        error_message = (
-            data.get("error", {})
-            .get("message", "")
-        )
-
-        if error_message:
-            return None, error_message
-
-        return None, f"Unexpected response format: {str(data)[:500]}"
-
-
-def call_ai(
-    messages,
-    max_tokens=1200,
-    retries_per_provider=2,
-):
-    """
-    Generic AI call.
-
-    Flow:
-    Primary -> retry
-    Primary -> retry
-    Fallback -> retry
-    Fallback -> retry
-    """
-
-    providers = [PRIMARY_CONFIG]
-
-    if (
-        FALLBACK_CONFIG["api_key"]
-        and FALLBACK_CONFIG["api_url"]
-        and FALLBACK_CONFIG["model"]
-    ):
-        providers.append(FALLBACK_CONFIG)
-
-    last_error = "Unknown error."
-
-    for provider_index, provider in enumerate(providers):
-
-        for attempt in range(retries_per_provider):
-
-            response, network_error = send_request(
-                messages=messages,
-                config=provider,
-                max_tokens=max_tokens,
-            )
-
-            if network_error:
-                last_error = network_error
-
-            elif response.status_code == 200:
-
-                content, extraction_error = (
-                    extract_response_content(response)
-                )
-
-                if not extraction_error:
-                    return content
-
-                last_error = extraction_error
-
-            elif response.status_code in (401, 403):
-
-                # Authentication failures should not retry forever.
-                last_error = (
-                    f"Authorization failed "
-                    f"({response.status_code}): "
-                    f"{response.text[:300]}"
-                )
-
-                break
-
-            elif response.status_code in TEMPORARY_STATUS_CODES:
-
-                last_error = (
-                    f"Temporary service error "
-                    f"{response.status_code}: "
-                    f"{response.text[:300]}"
-                )
-
-                error_text = response.text.lower()
-
-                # Resource exhaustion deserves a longer cooldown.
-                if (
-                    "resourceexhausted" in error_text
-                    or "request limit reached" in error_text
-                ):
-                    wait_time = random.uniform(8, 15)
-                else:
-                    wait_time = min(
-                        2 ** (attempt + 1)
-                        + random.uniform(0.5, 2),
-                        20,
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                except ValueError:
+                    return (
+                        "API returned invalid JSON:\n"
+                        f"{response.text[:500]}"
                     )
 
-                if attempt < retries_per_provider - 1:
-                    time.sleep(wait_time)
+                content = extract_message_content(data)
 
-            else:
+                if content is not None:
+                    return content
 
-                last_error = (
-                    f"HTTP Error {response.status_code}: "
-                    f"{response.text[:500]}"
+                if "error" in data:
+                    error = data["error"]
+
+                    if isinstance(error, dict):
+                        return (
+                            "API Error: "
+                            f"{error.get('message', str(error))}"
+                        )
+
+                    return f"API Error: {error}"
+
+                return (
+                    "Unexpected API response format: "
+                    f"{str(data)[:1000]}"
                 )
 
-                break
+            last_error = (
+                f"HTTP Error {response.status_code}: "
+                f"{response.text[:800]}"
+            )
 
-        # Small delay before provider fallback.
-        if provider_index < len(providers) - 1:
-            time.sleep(random.uniform(1, 3))
+            if response.status_code not in retryable_status_codes:
+                return last_error
 
-    return f"AI_ERROR: {last_error}"
+            if attempt < MAX_RETRIES - 1:
+                retry_after = response.headers.get("Retry-After")
+
+                if retry_after:
+                    try:
+                        delay = float(retry_after)
+                    except ValueError:
+                        delay = 0
+                else:
+                    delay = min(
+                        2 ** attempt,
+                        30
+                    ) + random.uniform(0, 1.5)
+
+                time.sleep(delay)
+
+        except requests.exceptions.Timeout:
+            last_error = "Request timed out."
+
+        except requests.exceptions.RequestException as error:
+            last_error = f"Network Error: {str(error)}"
+
+        if attempt < MAX_RETRIES - 1:
+            delay = min(
+                2 ** attempt,
+                30
+            ) + random.uniform(0, 1)
+
+            time.sleep(delay)
+
+    return (
+        "Service is currently busy after multiple retries. "
+        f"Last error: {last_error}"
+    )
 
 
 # ============================================================
-# VISION ANALYSIS
+# VISION / PLANT ANALYSIS
 # ============================================================
 
-def run_image_analysis(image_bytes, species_info):
+def analyze_plant_image(image_bytes, species_info):
+    if not MODEL_API_KEY:
+        return {
+            "error": "API key is missing."
+        }
 
-    encoded_image = base64.b64encode(
+    base64_image = base64.b64encode(
         image_bytes
     ).decode("utf-8")
 
     prompt = f"""
-Analyze this agricultural plant image.
+Analyze this plant image and metadata.
 
-Farm metadata:
+Metadata:
 {json.dumps(species_info, ensure_ascii=False)}
 
-Identify the likely crop and its health condition.
+Identify:
+
+1. Specific crop or plant name.
+2. Most likely disease or health issue.
+3. Soil health observations.
+4. Water and irrigation guidance.
+5. Overall risk score.
+
+Important:
+- Do not invent precise local measurements unless supplied.
+- Clearly treat uncertain conclusions as estimates.
+- Use only information reasonably inferable from the image and metadata.
 
 Return ONLY valid JSON:
 
 {{
-    "crop_name": "Name of crop",
+    "crop_name": "Crop name",
     "disease_name": "Disease name or Healthy",
-    "description": "Short condition assessment",
-    "solution": "Step-by-step actions",
+    "description": "Condition description",
+    "solution": "Step-by-step solution",
     "fertilizers": "Recommended nutrients or fertilizers",
-    "soil_insights": "Soil assumptions and recommendations",
-    "water_forecast": "Irrigation guidance",
-    "risk_score": "Low, Medium, or High"
+    "soil_insights": "Soil health observations",
+    "water_forecast": "Water and irrigation guidance",
+    "risk_score": "Low, Medium or High"
 }}
-
-Important:
-- Do not invent exact sensor readings.
-- Clearly treat unavailable environmental data as assumptions.
-- Do not output markdown.
 """
 
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are an agricultural vision and crop health assistant. "
-                "Be practical, conservative, and explicit about uncertainty."
-            ),
-        },
         {
             "role": "user",
             "content": [
@@ -480,213 +930,99 @@ Important:
                     "image_url": {
                         "url": (
                             "data:image/jpeg;base64,"
-                            f"{encoded_image}"
+                            f"{base64_image}"
                         )
                     },
                 },
             ],
-        },
+        }
     ]
 
-    output = call_ai(
+    output = call_model(
         messages,
-        max_tokens=1500,
-        retries_per_provider=2,
+        model=MODEL_NAME
     )
 
-    if output.startswith("AI_ERROR:"):
-        return {
-            "error": output
-        }
+    if output.startswith("HTTP Error"):
+        return {"error": output}
+
+    if output.startswith("API Error"):
+        return {"error": output}
+
+    if output.startswith("Service is currently busy"):
+        return {"error": output}
+
+    if output.startswith("Network Error"):
+        return {"error": output}
 
     try:
-        return parse_json_response(output)
-
-    except Exception as error:
-        return {
-            "error": (
-                f"Could not parse image analysis: {str(error)}"
-            ),
-            "raw_response": output[:3000],
-        }
-
-
-# ============================================================
-# TRANSLATION
-# ============================================================
-
-@st.cache_data(
-    show_spinner=False,
-    ttl=3600,
-)
-def translate_text(text, language):
-
-    if language == "English":
-        return text
-
-    if not isinstance(text, str):
-        return text
-
-    if not text.strip():
-        return text
-
-    # Translation is optional.
-    if not TRANSLATE_API_KEY or not TRANSLATE_API_URL:
-        return text
-
-    payload = {
-        "source_language_code": "en-IN",
-        "target_language_code":
-            LANGUAGE_CODE_MAP.get(
-                language,
-                "en-IN",
-            ),
-        "input": text,
-    }
-
-    headers = {
-        "api-subscription-key":
-            TRANSLATE_API_KEY,
-        "Content-Type":
-            "application/json",
-    }
-
-    try:
-
-        response = requests.post(
-            TRANSLATE_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=30,
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        return (
-            data.get("translated_text")
-            or data.get("translation")
-            or data.get("output")
-            or text
-        )
+        return safe_json_loads(output)
 
     except Exception:
-        return text
-
-
-def t(text):
-    return translate_text(
-        text,
-        st.session_state.language,
-    )
-
-
-def translate_result_data(data, language):
-
-    if language == "English":
-        return data
-
-    if isinstance(data, dict):
         return {
-            key: translate_result_data(
-                value,
-                language,
-            )
-            for key, value in data.items()
+            "error": "Model returned invalid analysis JSON.",
+            "raw_response": output[:2000],
         }
-
-    if isinstance(data, list):
-        return [
-            translate_result_data(
-                item,
-                language,
-            )
-            for item in data
-        ]
-
-    if isinstance(data, str):
-        return translate_text(
-            data,
-            language,
-        )
-
-    return data
 
 
 # ============================================================
 # TASK QUEUE
 # ============================================================
 
-def queue_task(task_name, prompt):
+def queue_task(task_name, prompt, model=None):
+    st.session_state.task_queue.append(
+        {
+            "task": task_name,
+            "prompt": prompt,
+            "model": model or REASONING_MODEL,
+        }
+    )
 
-    # Prevent duplicate tasks.
-    existing = [
-        task["task"]
-        for task in st.session_state.task_queue
-    ]
 
-    if task_name not in existing:
-        st.session_state.task_queue.append(
+def run_all_background_tasks():
+    if not st.session_state.task_queue:
+        return
+
+    while st.session_state.task_queue:
+        task = st.session_state.task_queue.pop(0)
+
+        st.session_state.agent_status = (
+            f"Running: {task['task']}"
+        )
+
+        report = call_model(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an agricultural AI agent. "
+                        "Provide a structured operational report with "
+                        "assumptions, risks, actions and measurable outcomes."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": task["prompt"],
+                },
+            ],
+            model=task["model"],
+        )
+
+        st.session_state.reports.insert(
+            0,
             {
-                "task": task_name,
-                "prompt": prompt,
+                "time": datetime.now().strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                ),
+                "title": task["task"],
+                "content": report,
             }
         )
 
+        # Small delay helps avoid hammering the API.
+        time.sleep(1)
 
-def run_next_task():
-
-    if not st.session_state.task_queue:
-        st.session_state.agent_status = "Idle"
-        return False
-
-    task = st.session_state.task_queue.pop(0)
-
-    st.session_state.agent_status = (
-        f"Running: {task['task']}"
-    )
-
-    report = call_ai(
-        [
-            {
-                "role": "system",
-                "content": (
-                    "You are an agricultural intelligence agent. "
-                    "Return a concise structured operational report "
-                    "with assumptions, risks, actions, and expected impact."
-                ),
-            },
-            {
-                "role": "user",
-                "content": task["prompt"],
-            },
-        ],
-        max_tokens=1200,
-        retries_per_provider=2,
-    )
-
-    st.session_state.reports.insert(
-        0,
-        {
-            "time": datetime.now().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            ),
-            "title": task["task"],
-            "content": report,
-        },
-    )
-
-    if st.session_state.task_queue:
-        st.session_state.agent_status = (
-            f"{len(st.session_state.task_queue)} tasks remaining"
-        )
-    else:
-        st.session_state.agent_status = (
-            "All tasks completed"
-        )
-
-    return True
+    st.session_state.agent_status = "All tasks completed"
 
 
 # ============================================================
@@ -694,70 +1030,72 @@ def run_next_task():
 # ============================================================
 
 def export_chat_to_pdf():
-
     os.makedirs(
         EXPORT_DIR,
-        exist_ok=True,
+        exist_ok=True
+    )
+
+    filename = (
+        f"chat_export_"
+        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     )
 
     path = os.path.join(
         EXPORT_DIR,
-        "chat_export_"
-        + datetime.now().strftime(
-            "%Y%m%d_%H%M%S"
-        )
-        + ".pdf",
+        filename
     )
 
-    document = SimpleDocTemplate(
-        path,
-        pagesize=A4,
-    )
-
-    styles = getSampleStyleSheet()
-
-    story = [
-        Paragraph(
-            "AI Agent Chat Export",
-            styles["Title"],
-        ),
-        Spacer(1, 20),
+    lines = [
+        "AI Agent Chat Export",
+        "",
     ]
 
-    if not st.session_state.chat_history:
-
-        story.append(
-            Paragraph(
-                "No chat messages available.",
-                styles["BodyText"],
-            )
-        )
-
     for message in st.session_state.chat_history:
-
-        safe_text = (
-            str(message["text"])
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
+        lines.append(
+            f"[{message['time']}] "
+            f"{message['role'].upper()}: "
+            f"{message['text']}"
         )
 
-        story.append(
-            Paragraph(
-                (
-                    f"<b>[{message['time']}] "
-                    f"{message['role'].upper()}:</b><br/>"
-                    f"{safe_text}"
-                ),
-                styles["BodyText"],
+    page_lines = 35
+
+    with PdfPages(path) as pdf:
+        total = max(
+            len(lines),
+            1
+        )
+
+        for i in range(
+            0,
+            total,
+            page_lines
+        ):
+            fig = plt.figure(
+                figsize=(8.27, 11.69)
             )
-        )
 
-        story.append(
-            Spacer(1, 10)
-        )
+            fig.patch.set_facecolor("white")
 
-    document.build(story)
+            chunk = "\n".join(
+                lines[i:i + page_lines]
+            )
+
+            if not chunk:
+                chunk = "No chat messages to export."
+
+            fig.text(
+                0.05,
+                0.95,
+                chunk,
+                va="top",
+                fontsize=9,
+                family="sans-serif",
+                wrap=True,
+            )
+
+            plt.axis("off")
+            pdf.savefig(fig)
+            plt.close(fig)
 
     return path
 
@@ -766,65 +1104,71 @@ def export_chat_to_pdf():
 # LOGIN
 # ============================================================
 
-def login_block(lang_text):
-
-    if st.session_state.logged_in:
-        return
-
+def login_block():
     if not os.path.exists(USER_DB):
-
         with open(
             USER_DB,
             "w",
-            encoding="utf-8",
+            encoding="utf-8"
         ) as file:
-            json.dump({}, file)
+            json.dump(
+                {},
+                file
+            )
 
     try:
         with open(
             USER_DB,
             "r",
-            encoding="utf-8",
+            encoding="utf-8"
         ) as file:
             users = json.load(file)
 
-    except Exception:
+    except (
+        json.JSONDecodeError,
+        FileNotFoundError
+    ):
         users = {}
 
-    st.title(lang_text["login"])
+    if st.session_state.logged_in:
+        return
+
+    st.title(tr("login"))
 
     username = st.text_input(
-        lang_text["username"]
+        tr("username"),
+        key="login_username"
     )
 
     password = st.text_input(
-        lang_text["password"],
+        tr("password"),
         type="password",
+        key="login_password"
     )
 
-    if st.button("Continue"):
+    if st.button(
+        tr("continue"),
+        use_container_width=True
+    ):
+        username = username.strip()
 
-        if not username.strip():
-            st.error(
-                "Username cannot be empty."
-            )
+        if not username or not password:
+            st.error("Username and password are required.")
             st.stop()
 
-        if not password:
-            st.error(
-                "Password cannot be empty."
-            )
-            st.stop()
+        if username in users:
+            if users[username] != password:
+                st.error("Invalid password.")
+                st.stop()
 
-        # NOTE:
-        # For production, use password hashing.
-        if (
-            username in users
-            and users[username] == password
-        ):
             st.session_state.logged_in = True
             st.session_state.username = username
-            st.success("Login successful.")
+
+            st.success(
+                tr("login_success")
+            )
+
+            st.rerun()
 
         else:
             users[username] = password
@@ -832,20 +1176,23 @@ def login_block(lang_text):
             with open(
                 USER_DB,
                 "w",
-                encoding="utf-8",
+                encoding="utf-8"
             ) as file:
                 json.dump(
                     users,
                     file,
+                    ensure_ascii=False,
+                    indent=2
                 )
 
             st.session_state.logged_in = True
             st.session_state.username = username
+
             st.success(
-                "Account created."
+                tr("account_created")
             )
 
-        st.rerun()
+            st.rerun()
 
     st.stop()
 
@@ -854,156 +1201,90 @@ def login_block(lang_text):
 # SIDEBAR
 # ============================================================
 
-def sidebar_controls(lang_text):
-
+def sidebar_controls():
     with st.sidebar:
-
         st.title(
-            "Agent Control Panel"
+            tr("agent_control")
         )
 
         languages = list(
             TRANSLATIONS.keys()
         )
 
-        current_index = languages.index(
+        current_language = (
             st.session_state.language
         )
 
-        new_language = st.selectbox(
-            "Select Language",
+        language_index = languages.index(
+            current_language
+        )
+
+        selected_language = st.selectbox(
+            tr("select_language"),
             languages,
-            index=current_index,
+            index=language_index,
+            key="language_selector",
         )
 
-        if st.button(
-            "Apply Language"
-        ):
-            st.session_state.language = (
-                new_language
-            )
+        if selected_language != current_language:
+            st.session_state.language = selected_language
             st.rerun()
 
-        st.divider()
+        st.markdown("---")
+
+        # ---------------- COST ----------------
 
         st.subheader(
-            "Quick Agent Actions"
+            tr("cost_estimation")
         )
 
-        selected_action = st.selectbox(
-            "Select analysis",
-            list(ACTION_MAP.keys()),
+        est_location = st.text_input(
+            tr("location_city"),
+            key="cost_location"
         )
 
-        if st.button(
-            "Queue Analysis",
-            use_container_width=True,
-        ):
-
-            queue_task(
-                selected_action,
-                ACTION_MAP[
-                    selected_action
-                ],
-            )
-
-            st.success(
-                "Task added to queue."
-            )
-
-        if st.button(
-            "Queue Core Analysis",
-            use_container_width=True,
-        ):
-
-            core_actions = [
-                "Soil moisture modeling",
-                "Water requirement prediction",
-                "NPK prediction",
-                "Disease risk 7-30 days",
-                "Production estimate per acre",
-                "Profit forecast",
-                "Full Agent Pipeline",
-            ]
-
-            for action in core_actions:
-
-                queue_task(
-                    action,
-                    ACTION_MAP[action],
-                )
-
-            st.success(
-                f"{len(core_actions)} tasks queued."
-            )
-
-        # IMPORTANT:
-        # One task per click.
-        # No 30-request API avalanche.
-        if (
-            st.session_state.task_queue
-            and st.button(
-                "Run Next Task",
-                use_container_width=True,
-            )
-        ):
-
-            with st.spinner(
-                "Running one task..."
-            ):
-                run_next_task()
-
-            st.rerun()
-
-        st.divider()
-
-        st.subheader(
-            "Cost Estimation"
+        est_crop = st.text_input(
+            tr("crop_name"),
+            key="cost_crop"
         )
 
-        location = st.text_input(
-            "Location"
-        )
-
-        crop = st.text_input(
-            "Crop name"
-        )
-
-        acres = st.number_input(
-            "Total acres",
+        est_acres = st.number_input(
+            tr("total_acres"),
             min_value=0.0,
             step=0.1,
+            key="cost_acres"
         )
 
-        invested = st.number_input(
-            "Total invested",
+        est_invested = st.number_input(
+            tr("total_invested"),
             min_value=0.0,
             step=100.0,
+            key="cost_invested"
         )
 
         if st.button(
-            "Estimate Cost & Profit",
-            use_container_width=True,
+            tr("estimate_profit"),
+            use_container_width=True
         ):
-
             if (
-                not location
-                or not crop
-                or acres <= 0
+                not est_location
+                or not est_crop
+                or est_acres <= 0
             ):
                 st.error(
-                    "Fill location, crop, and acres."
+                    tr("fill_fields")
                 )
 
             else:
+                cost_prompt = f"""
+Location: {est_location}
+Crop: {est_crop}
+Acres: {est_acres}
+Investment: {est_invested}
 
-                prompt = f"""
-Analyze the economics of this farm.
+Provide a cost, revenue and profit analysis.
 
-Location: {location}
-Crop: {crop}
-Acres: {acres}
-Investment: {invested}
+Use estimates when live market data is unavailable.
 
 Return ONLY valid JSON:
 
@@ -1017,286 +1298,418 @@ Return ONLY valid JSON:
     "travel_costs": "...",
     "recommendation": "..."
 }}
-
-Do not claim live market data unless it was actually supplied.
-State assumptions clearly.
 """
 
                 with st.spinner(
-                    "Calculating..."
+                    tr("thinking")
                 ):
-
-                    result = call_ai(
-                        [
-                            {
-                                "role": "system",
-                                "content":
-                                    "You are a conservative agricultural economic analyst.",
-                            },
-                            {
-                                "role": "user",
-                                "content": prompt,
-                            },
-                        ],
-                        max_tokens=1200,
+                    st.session_state.cost_estimation = (
+                        call_model(
+                            [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "You are an agricultural "
+                                        "economic analyst."
+                                    ),
+                                },
+                                {
+                                    "role": "user",
+                                    "content": cost_prompt,
+                                },
+                            ],
+                            model=REASONING_MODEL
+                        )
                     )
 
-                st.session_state.cost_estimation = (
-                    result
-                )
+        st.markdown("---")
 
-        st.divider()
+        # ---------------- QUICK ACTIONS ----------------
 
         st.subheader(
-            "Chat Export"
+            tr("quick_actions")
+        )
+
+        selected_action = st.selectbox(
+            tr("select_analysis"),
+            list(ACTION_MAP.keys()),
+            key="agent_action"
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button(
+                tr("run_analysis"),
+                use_container_width=True
+            ):
+                queue_task(
+                    selected_action,
+                    ACTION_MAP[selected_action]
+                )
+
+                st.success(
+                    f"{tr('queued')}: "
+                    f"{selected_action}"
+                )
+
+        with col2:
+            if st.button(
+                tr("do_all_analysis"),
+                use_container_width=True
+            ):
+                for action, prompt in ACTION_MAP.items():
+                    queue_task(
+                        action,
+                        prompt
+                    )
+
+                st.success(
+                    tr("all_queued")
+                )
+
+        if st.button(
+            tr("run_core_layers"),
+            use_container_width=True
+        ):
+            layers = [
+                "Vision Layer",
+                "Climate Layer",
+                "Soil Layer",
+                "Water Layer",
+                "Market Layer",
+                "Execution Layer",
+            ]
+
+            for layer in layers:
+                queue_task(
+                    layer,
+                    (
+                        f"Generate an operational report for "
+                        f"{layer} with metrics and actions."
+                    )
+                )
+
+            st.success(
+                tr("layers_queued")
+            )
+
+        st.markdown("---")
+
+        # ---------------- PDF ----------------
+
+        st.subheader(
+            tr("chat_export")
         )
 
         if st.button(
-            "Export Chat as PDF",
-            use_container_width=True,
+            tr("export_pdf"),
+            use_container_width=True
         ):
+            pdf_path = export_chat_to_pdf()
 
-            path = export_chat_to_pdf()
+            st.success(
+                f"{tr('saved')}: {pdf_path}"
+            )
 
             with open(
-                path,
-                "rb",
+                pdf_path,
+                "rb"
             ) as file:
-
                 st.download_button(
                     "Download PDF",
-                    data=file.read(),
-                    file_name=os.path.basename(
-                        path
-                    ),
+                    data=file,
+                    file_name=os.path.basename(pdf_path),
                     mime="application/pdf",
                 )
 
-        st.divider()
+        st.markdown("---")
 
-        st.write(
-            f"User: {st.session_state.username}"
+        # ---------------- USER ----------------
+
+        st.subheader(
+            tr("user")
         )
 
-        if st.button(
-            "Logout",
-            use_container_width=True,
+        try:
+            st.image(
+                st.session_state.photo_url,
+                width=70
+            )
+        except Exception:
+            pass
+
+        st.write(
+            st.session_state.username
+        )
+
+        with st.expander(
+            tr("profile_menu")
         ):
-            st.session_state.logged_in = False
-            st.session_state.username = ""
-            st.rerun()
+            st.button(
+                tr("settings"),
+                disabled=True
+            )
+
+            if st.button(
+                tr("logout"),
+                use_container_width=True
+            ):
+                st.session_state.logged_in = False
+                st.session_state.username = ""
+                st.session_state.menu_choice = "home"
+
+                st.rerun()
 
 
 # ============================================================
 # HOME PAGE
 # ============================================================
 
-def home_page(lang_text):
-
+def home_page():
     st.title(
-        "Agricultural Super AI Agent"
+        APP_TITLE
     )
 
-    st.session_state.location = (
-        st.text_input(
-            "Farm location",
-            value=st.session_state.location,
-        )
+    st.session_state.location = st.text_input(
+        tr("farm_location"),
+        value=st.session_state.location,
+        key="farm_location_input"
     )
 
     uploaded_image = st.file_uploader(
-        lang_text["upload"],
+        tr("upload"),
         type=[
             "jpg",
             "jpeg",
             "png",
         ],
+        key="leaf_upload"
     )
 
     if uploaded_image:
-
         image = Image.open(
             uploaded_image
         )
 
         st.image(
             image,
-            caption="Uploaded Leaf",
-            use_container_width=True,
+            caption=tr("upload"),
+            use_container_width=True
         )
 
         if st.button(
-            lang_text["analyze"],
-            use_container_width=True,
+            tr("analyze"),
+            key="analyze_leaf_button",
+            use_container_width=True
         ):
+            try:
+                buffer = io.BytesIO()
 
-            buffer = io.BytesIO()
-
-            image.convert(
-                "RGB"
-            ).save(
-                buffer,
-                format="JPEG",
-                quality=90,
-            )
-
-            image_bytes = (
-                buffer.getvalue()
-            )
-
-            species_info = {
-                "location":
-                    st.session_state.location
-                    or "Not provided"
-            }
-
-            with st.spinner(
-                "Analyzing crop image..."
-            ):
-
-                result = (
-                    run_image_analysis(
-                        image_bytes,
-                        species_info,
-                    )
+                rgb_image = image.convert(
+                    "RGB"
                 )
 
-            st.session_state.detection_result = (
-                result
-            )
+                rgb_image.save(
+                    buffer,
+                    format="JPEG"
+                )
+
+                image_bytes = (
+                    buffer.getvalue()
+                )
+
+                status = st.status(
+                    tr("running_pipeline"),
+                    expanded=True
+                )
+
+                status.write(
+                    tr("getting_location")
+                )
+
+                time.sleep(0.3)
+
+                status.write(
+                    tr("fetching_soil")
+                )
+
+                time.sleep(0.3)
+
+                status.write(
+                    tr("fetching_water")
+                )
+
+                time.sleep(0.3)
+
+                status.write(
+                    tr("analyzing_image")
+                )
+
+                species_info = {
+                    "location":
+                        st.session_state.location
+                }
+
+                result = analyze_plant_image(
+                    image_bytes,
+                    species_info
+                )
+
+                status.write(
+                    tr("thinking")
+                )
+
+                if "error" in result:
+                    status.update(
+                        label=result["error"],
+                        state="error"
+                    )
+
+                    st.error(
+                        result["error"]
+                    )
+
+                else:
+                    st.session_state.detection_result = (
+                        result
+                    )
+
+                    status.update(
+                        label=tr("analysis_complete"),
+                        state="complete"
+                    )
+
+                    st.success(
+                        tr("analysis_complete")
+                    )
+
+            except Exception as error:
+                st.error(
+                    f"Analysis failed: {str(error)}"
+                )
+
+    # ---------------- RESULT ----------------
 
     result = (
         st.session_state.detection_result
     )
 
-    if not result:
-        return
+    if (
+        result
+        and isinstance(result, dict)
+        and "error" not in result
+    ):
+        st.markdown("---")
 
-    if "error" in result:
-
-        st.error(
-            result["error"]
+        st.markdown(
+            f"## {tr('full_analysis')}"
         )
 
-        if result.get(
-            "raw_response"
-        ):
-            with st.expander(
-                "Debug response"
-            ):
-                st.code(
-                    result[
-                        "raw_response"
-                    ]
+        col_crop, col_disease = st.columns(2)
+
+        with col_crop:
+            st.markdown(
+                f"### {tr('crop_identified')}"
+            )
+
+            st.write(
+                result.get(
+                    "crop_name",
+                    tr("unknown")
                 )
+            )
 
-        return
+        with col_disease:
+            st.markdown(
+                f"### {tr('disease_status')}"
+            )
 
-    result = translate_result_data(
-        result,
-        st.session_state.language,
-    )
+            st.write(
+                result.get(
+                    "disease_name",
+                    tr("healthy")
+                )
+            )
 
-    st.divider()
+        st.markdown(
+            f"## {tr('condition_assessment')}"
+        )
 
-    st.header(
-        "Full Analysis Report"
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        st.metric(
-            "Crop Identified",
+        st.write(
             result.get(
-                "crop_name",
-                "Unknown",
-            ),
+                "description",
+                tr("no_description")
+            )
         )
 
-    with col2:
+        st.markdown(
+            f"## {tr('actionable_prescription')}"
+        )
 
-        st.metric(
-            "Disease Status",
+        st.write(
             result.get(
-                "disease_name",
-                "Unknown",
-            ),
+                "solution",
+                tr("no_solution")
+            )
         )
 
-    st.subheader(
-        "Condition Assessment"
-    )
-
-    st.write(
-        result.get(
-            "description",
-            "No description available.",
+        st.markdown(
+            f"## {tr('soil_moisture')}"
         )
-    )
 
-    st.subheader(
-        "Actionable Prescription"
-    )
-
-    st.write(
-        result.get(
-            "solution",
-            "No solution provided.",
+        st.write(
+            result.get(
+                "soil_insights",
+                tr("no_soil")
+            )
         )
-    )
 
-    st.subheader(
-        "Soil Insights"
-    )
-
-    st.write(
-        result.get(
-            "soil_insights",
-            "No soil insights available.",
+        st.markdown(
+            f"## {tr('water_weather')}"
         )
-    )
 
-    st.subheader(
-        "Water and Irrigation"
-    )
-
-    st.write(
-        result.get(
-            "water_forecast",
-            "No water forecast available.",
+        st.write(
+            result.get(
+                "water_forecast",
+                tr("no_water")
+            )
         )
-    )
 
-    risk = result.get(
-        "risk_score",
-        "Unknown",
-    )
-
-    st.subheader(
-        "Risk Level"
-    )
-
-    if risk.lower() == "high":
-        st.error(risk)
-
-    elif risk.lower() == "medium":
-        st.warning(risk)
-
-    else:
-        st.success(risk)
-
-    st.subheader(
-        "Fertilizer Recommendations"
-    )
-
-    st.write(
-        result.get(
-            "fertilizers",
-            "No fertilizer recommendations available.",
+        st.markdown(
+            f"## {tr('risk_urgency')}"
         )
-    )
+
+        risk = result.get(
+            "risk_score",
+            "Low"
+        )
+
+        if risk.lower() == "high":
+            st.error(
+                f"**{tr('risk_level')}:** {risk}"
+            )
+
+        elif risk.lower() == "medium":
+            st.warning(
+                f"**{tr('risk_level')}:** {risk}"
+            )
+
+        else:
+            st.success(
+                f"**{tr('risk_level')}:** {risk}"
+            )
+
+        st.markdown(
+            f"## {tr('fertilizer_recommendations')}"
+        )
+
+        st.write(
+            result.get(
+                "fertilizers",
+                tr("no_fertilizer")
+            )
+        )
 
 
 # ============================================================
@@ -1304,17 +1717,14 @@ def home_page(lang_text):
 # ============================================================
 
 def chat_page():
+    st.title(
+        tr("agent_chat")
+    )
 
-    st.title("Agent Chat")
-
-    for message in (
-        st.session_state.chat_history
-    ):
-
+    for message in st.session_state.chat_history:
         with st.chat_message(
             message["role"]
         ):
-
             st.caption(
                 message["time"]
             )
@@ -1324,34 +1734,30 @@ def chat_page():
             )
 
     query = st.chat_input(
-        "Ask about farming, irrigation, diseases, costs..."
+        tr("chat_placeholder")
     )
 
     if query:
-
         st.session_state.chat_history.append(
             {
-                "time":
-                    datetime.now().strftime(
-                        "%H:%M:%S"
-                    ),
+                "time": datetime.now().strftime(
+                    "%H:%M:%S"
+                ),
                 "role": "user",
                 "text": query,
             }
         )
 
         with st.spinner(
-            "Thinking..."
+            tr("agent_thinking")
         ):
-
-            answer = call_ai(
+            answer = call_model(
                 [
                     {
                         "role": "system",
                         "content": (
-                            "You are a practical agricultural AI assistant. "
-                            "Do not invent live data. "
-                            "State uncertainty clearly."
+                            "You are a practical agricultural AI agent. "
+                            "Be useful, specific and honest about uncertainty."
                         ),
                     },
                     {
@@ -1359,15 +1765,14 @@ def chat_page():
                         "content": query,
                     },
                 ],
-                max_tokens=1000,
+                model=REASONING_MODEL
             )
 
         st.session_state.chat_history.append(
             {
-                "time":
-                    datetime.now().strftime(
-                        "%H:%M:%S"
-                    ),
+                "time": datetime.now().strftime(
+                    "%H:%M:%S"
+                ),
                 "role": "assistant",
                 "text": answer,
             }
@@ -1377,67 +1782,129 @@ def chat_page():
 
 
 # ============================================================
-# SHOP / DOCTORS
+# SHOP / DOCTOR PAGE
 # ============================================================
 
-def services_page(title, actor):
+def shop_or_doctors_page(page_type):
+    if page_type == "shop":
+        title = tr("shop_title")
+        actor = "agricultural fertilizer supplier"
 
-    st.title(title)
+    else:
+        title = tr("doctor_title")
+        actor = "agricultural expert"
 
-    crop = st.text_input(
-        "Crop name"
+    st.title(
+        title
     )
 
-    requirement = st.text_input(
-        "Requirement"
+    col1, col2 = st.columns(2)
+
+    with col1:
+        crop = st.text_input(
+            tr("crop_name"),
+            key=f"{page_type}_crop"
+        )
+
+    with col2:
+        requirement = st.text_input(
+            tr("requirement"),
+            key=f"{page_type}_requirement"
+        )
+
+    location = (
+        st.session_state.location
+        or "the specified region"
     )
 
-    if st.button(
-        f"Get {actor} Recommendations"
-    ):
+    col_search, col_nearby = st.columns(2)
 
-        prompt = f"""
-Provide useful recommendations for agricultural {actor.lower()} services.
+    with col_search:
+        if st.button(
+            tr("search"),
+            key=f"{page_type}_search",
+            use_container_width=True
+        ):
+            with st.spinner(
+                tr("finding_options")
+            ):
+                prompt = f"""
+Recommend useful {actor} options.
 
 Crop: {crop}
 Requirement: {requirement}
-Farm location: {st.session_state.location}
+Location: {location}
 
-Do not invent real business names, phone numbers, addresses, or live availability.
-If exact local information is unavailable, provide categories and selection criteria.
+Do not invent phone numbers or exact addresses.
+If live local data is unavailable, clearly label the answer as general recommendations.
 """
 
-        with st.spinner(
-            "Analyzing options..."
+                response = call_model(
+                    [
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        }
+                    ],
+                    model=REASONING_MODEL
+                )
+
+                st.write(
+                    response
+                )
+
+    with col_nearby:
+        if st.button(
+            tr("show_nearby"),
+            key=f"{page_type}_nearby",
+            use_container_width=True
         ):
+            with st.spinner(
+                tr("listing_options")
+            ):
+                prompt = f"""
+List general major categories and options for finding a nearby {actor}.
 
-            response = call_ai(
-                [
-                    {
-                        "role": "user",
-                        "content": prompt,
-                    }
-                ],
-                max_tokens=1000,
-            )
+Crop: {crop}
+Location: {location}
 
-        st.write(response)
+Do not fabricate real businesses, contacts or addresses.
+Explain how the user should verify local availability.
+"""
+
+                response = call_model(
+                    [
+                        {
+                            "role": "user",
+                            "content": prompt,
+                        }
+                    ],
+                    model=REASONING_MODEL
+                )
+
+                st.write(
+                    response
+                )
 
 
 # ============================================================
-# CONTACT
+# CONTACT PAGE
 # ============================================================
 
 def contact_page():
-
-    st.title("Contact")
-
-    st.write(
-        "AI Farm Agent"
+    st.title(
+        tr("contact_title")
     )
 
-    st.write(
-        "Services: Vision, Crop Health, Soil, Water, Market Analysis, and Automation"
+    st.markdown(
+        f"""
+### {tr('team')}
+
+**{tr('email')}:** support@example.com
+
+**{tr('services')}:**
+Vision • Climate • Soil • Water • Market • Execution
+"""
     )
 
 
@@ -1446,41 +1913,24 @@ def contact_page():
 # ============================================================
 
 def show_reports_panel():
-
-    st.divider()
-
-    st.header(
-        "Generated Reports"
+    st.markdown(
+        f"## {tr('generated_reports')}"
     )
 
-    reports = (
-        st.session_state.reports
-    )
-
-    if not reports:
-
+    if not st.session_state.reports:
         st.info(
-            "No reports yet."
+            tr("no_reports")
         )
 
         return
 
-    for report in reports[:12]:
-
+    for report in st.session_state.reports[:12]:
         with st.expander(
             f"{report['time']} — {report['title']}"
         ):
-
-            content = (
+            st.write(
                 report["content"]
             )
-
-            if content.startswith(
-                "AI_ERROR:"
-            ):
-                st.error(content)
-            else:
-                st.write(content)
 
 
 # ============================================================
@@ -1488,7 +1938,6 @@ def show_reports_panel():
 # ============================================================
 
 def show_cost_report():
-
     estimation = (
         st.session_state.cost_estimation
     )
@@ -1496,95 +1945,95 @@ def show_cost_report():
     if not estimation:
         return
 
-    st.divider()
+    st.markdown("---")
 
-    st.header(
-        "Cost and Profit Estimation"
+    st.markdown(
+        f"## {tr('cost_report')}"
     )
 
-    if estimation.startswith(
-        "AI_ERROR:"
-    ):
-        st.error(estimation)
-        return
-
     try:
-
-        data = parse_json_response(
+        data = safe_json_loads(
             estimation
         )
 
     except Exception:
-
         st.warning(
-            "The response was not valid JSON."
+            "Could not parse structured estimation."
         )
 
-        st.write(estimation)
+        st.write(
+            estimation
+        )
 
         return
 
-    for label, key in [
+    st.markdown(
+        f"### {tr('market_price')}"
+    )
 
-        (
-            "Market Price",
+    st.write(
+        data.get(
             "market_price",
-        ),
-
-        (
-            "Price Trend",
-            "price_trend",
-        ),
-
-        (
-            "Best Months",
-            "best_months",
-        ),
-
-        (
-            "Total Cost",
-            "total_cost",
-        ),
-
-        (
-            "Expected Revenue",
-            "expected_revenue",
-        ),
-
-        (
-            "Profit or Loss",
-            "profit_or_loss",
-        ),
-
-        (
-            "Travel Costs",
-            "travel_costs",
-        ),
-
-        (
-            "Recommendation",
-            "recommendation",
-        ),
-    ]:
-
-        st.subheader(label)
-
-        value = data.get(
-            key,
-            "Not available",
+            "N/A"
         )
+    )
 
-        if isinstance(
-            value,
-            list,
-        ):
-            st.write(
-                ", ".join(
-                    map(str, value)
-                )
-            )
-        else:
-            st.write(value)
+    st.markdown(
+        f"### {tr('price_trend')}"
+    )
+
+    st.write(
+        data.get(
+            "price_trend",
+            ""
+        )
+    )
+
+    st.write(
+        f"**{tr('best_months')}:** "
+        f"{', '.join(data.get('best_months', []))}"
+    )
+
+    st.markdown(
+        f"### {tr('cost_revenue')}"
+    )
+
+    st.write(
+        f"**{tr('production_cost')}:** "
+        f"{data.get('total_cost', 'N/A')}"
+    )
+
+    st.write(
+        f"**{tr('expected_revenue')}:** "
+        f"{data.get('expected_revenue', 'N/A')}"
+    )
+
+    st.write(
+        f"**{tr('profit_loss')}:** "
+        f"{data.get('profit_or_loss', 'N/A')}"
+    )
+
+    st.markdown(
+        f"### {tr('travel_costs')}"
+    )
+
+    st.write(
+        data.get(
+            "travel_costs",
+            "N/A"
+        )
+    )
+
+    st.markdown(
+        f"### {tr('recommendation')}"
+    )
+
+    st.info(
+        data.get(
+            "recommendation",
+            ""
+        )
+    )
 
 
 # ============================================================
@@ -1592,83 +2041,101 @@ def show_cost_report():
 # ============================================================
 
 def main():
+    st.set_page_config(
+        page_title=APP_TITLE,
+        layout="wide"
+    )
 
     ensure_session_defaults()
 
-    lang_text = TRANSLATIONS[
-        st.session_state.language
-    ]
+    apply_local_font()
 
-    login_block(
-        lang_text
-    )
+    login_block()
 
-    sidebar_controls(
-        lang_text
-    )
+    sidebar_controls()
 
-    st.caption(
-        f"Agent Status: "
+    apply_local_font()
+
+    # Run queued tasks after sidebar interaction.
+    run_all_background_tasks()
+
+    st.markdown(
+        f"### {tr('agent_status')}: "
         f"{st.session_state.agent_status}"
     )
 
-    cols = st.columns(5)
+    # --------------------------------------------------------
+    # NAVIGATION
+    #
+    # Internal ID:
+    # home / chat / shops / doctors / contact
+    #
+    # Display label:
+    # changes with language
+    #
+    # This is why language switching no longer breaks routing.
+    # --------------------------------------------------------
 
-    menu_items = [
-        "Home",
-        "Chat",
-        "Shop",
-        "Doctors",
-        "Contact",
-    ]
+    columns = st.columns(
+        len(NAV_ITEMS)
+    )
 
-    for index, item in enumerate(
-        menu_items
-    ):
+    for index, (
+        page_id,
+        translation_key
+    ) in enumerate(NAV_ITEMS):
 
-        button_type = (
-            "primary"
-            if st.session_state.menu_choice
-            == item
-            else "secondary"
-        )
+        with columns[index]:
+            if st.button(
+                tr(translation_key),
+                key=f"nav_{page_id}",
+                use_container_width=True,
+                type=(
+                    "primary"
+                    if st.session_state.menu_choice == page_id
+                    else "secondary"
+                ),
+            ):
+                st.session_state.menu_choice = (
+                    page_id
+                )
 
-        if cols[index].button(
-            item,
-            use_container_width=True,
-            type=button_type,
-        ):
+                st.rerun()
 
-            st.session_state.menu_choice = (
-                item
-            )
-
-            st.rerun()
+    # --------------------------------------------------------
+    # ROUTING
+    # --------------------------------------------------------
 
     menu = (
         st.session_state.menu_choice
     )
 
-    if menu == "Home":
-        home_page(lang_text)
+    if menu == "home":
+        home_page()
 
-    elif menu == "Chat":
+    elif menu == "chat":
         chat_page()
 
-    elif menu == "Shop":
-        services_page(
-            "Fertilizer Shop",
-            "Shop",
+    elif menu == "shops":
+        shop_or_doctors_page(
+            "shop"
         )
 
-    elif menu == "Doctors":
-        services_page(
-            "Agricultural Doctors",
-            "Doctors",
+    elif menu == "doctors":
+        shop_or_doctors_page(
+            "doctor"
         )
 
-    elif menu == "Contact":
+    elif menu == "contact":
         contact_page()
+
+    else:
+        st.session_state.menu_choice = "home"
+        st.rerun()
+
+    # --------------------------------------------------------
+    # REPORTS
+    # --------------------------------------------------------
 
     show_cost_report()
 
