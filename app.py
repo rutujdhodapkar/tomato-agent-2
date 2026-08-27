@@ -7,10 +7,10 @@ import re
 import time
 from datetime import datetime
 
+import matplotlib.pyplot as plt
 import requests
 import streamlit as st
 from matplotlib.backends.backend_pdf import PdfPages
-import matplotlib.pyplot as plt
 from PIL import Image
 
 
@@ -20,62 +20,28 @@ from PIL import Image
 
 APP_TITLE = "Agri Super Agent"
 
-MODEL_API_KEY = (
-    st.secrets.get("MODEL_API_KEY", None)
-    or os.getenv("MODEL_API_KEY")
-)
-
-MODEL_API_URL = (
-    st.secrets.get(
-        "MODEL_API_URL",
-        "https://integrate.api.nvidia.com/v1/chat/completions"
-    )
-    or os.getenv("MODEL_API_URL")
-)
-
-MODEL_NAME = (
-    st.secrets.get(
-        "MODEL_NAME",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    )
-    or os.getenv(
-        "MODEL_NAME",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    )
-)
-
-REASONING_MODEL = (
-    st.secrets.get(
-        "REASONING_MODEL",
-        "nvidia/nemotron-3-ultra-550b-a55b"
-    )
-    or os.getenv(
-        "REASONING_MODEL",
-        "nvidia/nemotron-3-ultra-550b-a55b"
-    )
-)
-
-SARVAM_API_KEY = (
-    st.secrets.get("SARVAM_API_KEY", None)
-    or os.getenv("SARVAM_API_KEY")
-)
-
-SARVAM_TRANSLATE_URL = (
-    st.secrets.get(
-        "SARVAM_TRANSLATE_URL",
-        "https://api.sarvam.ai/translate"
-    )
-    or os.getenv(
-        "SARVAM_TRANSLATE_URL",
-        "https://api.sarvam.ai/translate"
-    )
-)
-
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
 
-MAX_RETRIES = 5
+MAX_RETRIES = 4
 REQUEST_TIMEOUT = 120
+
+# Prevent Streamlit from hammering the API with huge queues.
+MAX_TASKS_PER_RUN = 2
+
+# Generic API configuration.
+# Put these in .streamlit/secrets.toml
+API_KEY = st.secrets.get("API_KEY", os.getenv("API_KEY", ""))
+API_URL = st.secrets.get("API_URL", os.getenv("API_URL", ""))
+MODEL = st.secrets.get("MODEL", os.getenv("MODEL", ""))
+VISION_MODEL = st.secrets.get(
+    "VISION_MODEL",
+    os.getenv("VISION_MODEL", MODEL),
+)
+REASONING_MODEL = st.secrets.get(
+    "REASONING_MODEL",
+    os.getenv("REASONING_MODEL", MODEL),
+)
 
 
 # ============================================================
@@ -102,7 +68,6 @@ TRANSLATIONS = {
 
         "agent_control": "Agent Control Panel",
         "select_language": "Select Language",
-        "apply_language": "Apply Language",
 
         "farm_location": "Farm location",
 
@@ -142,7 +107,7 @@ TRANSLATIONS = {
         "select_analysis": "Select analysis",
         "run_analysis": "Run analysis",
         "do_all_analysis": "Do all analysis",
-        "run_core_layers": "Run all core layers",
+        "run_core_layers": "Run core layers",
         "queued": "Queued",
         "all_queued": "All analyses queued!",
         "layers_queued": "All layer analyses queued.",
@@ -157,6 +122,7 @@ TRANSLATIONS = {
 
         "chat_export": "Chat Export",
         "export_pdf": "Export chat as PDF",
+        "download_pdf": "Download PDF",
         "saved": "Saved",
 
         "user": "User",
@@ -176,9 +142,9 @@ TRANSLATIONS = {
         "search": "Search",
         "search_failed": "Search failed",
         "found": "Found",
-        "show_nearby": "Show all nearby",
+        "show_nearby": "Show nearby options",
         "finding_options": "Finding the best options for you...",
-        "listing_options": "Listing major options...",
+        "listing_options": "Finding nearby options...",
 
         "contact_title": "Contact",
         "team": "AI Farm Agent Team",
@@ -186,9 +152,7 @@ TRANSLATIONS = {
         "services": "Services",
 
         "generated_reports": "Generated Reports",
-        "no_reports": (
-            "No reports yet. Run analyses from the left panel."
-        ),
+        "no_reports": "No reports yet. Run analyses from the left panel.",
 
         "cost_report": "Cost and Profit Estimation Report",
         "market_price": "Local Market Price",
@@ -203,6 +167,10 @@ TRANSLATIONS = {
 
         "unknown": "Unknown",
         "healthy": "Healthy",
+
+        "api_missing": "API configuration is missing.",
+        "api_busy": "Service is busy. Please try again shortly.",
+        "queue_remaining": "Tasks remaining in queue",
     },
 
     "Hindi": {
@@ -224,7 +192,6 @@ TRANSLATIONS = {
 
         "agent_control": "एजेंट कंट्रोल पैनल",
         "select_language": "भाषा चुनें",
-        "apply_language": "भाषा लागू करें",
 
         "farm_location": "खेत का स्थान",
 
@@ -279,6 +246,7 @@ TRANSLATIONS = {
 
         "chat_export": "चैट एक्सपोर्ट",
         "export_pdf": "चैट को PDF में एक्सपोर्ट करें",
+        "download_pdf": "PDF डाउनलोड करें",
         "saved": "सेव किया गया",
 
         "user": "उपयोगकर्ता",
@@ -298,9 +266,9 @@ TRANSLATIONS = {
         "search": "खोजें",
         "search_failed": "खोज असफल",
         "found": "मिल गया",
-        "show_nearby": "सभी नजदीकी विकल्प दिखाएं",
+        "show_nearby": "नजदीकी विकल्प दिखाएं",
         "finding_options": "आपके लिए सर्वोत्तम विकल्प खोजे जा रहे हैं...",
-        "listing_options": "मुख्य विकल्प दिखाए जा रहे हैं...",
+        "listing_options": "नजदीकी विकल्प खोजे जा रहे हैं...",
 
         "contact_title": "संपर्क",
         "team": "AI फार्म एजेंट टीम",
@@ -323,6 +291,10 @@ TRANSLATIONS = {
 
         "unknown": "अज्ञात",
         "healthy": "स्वस्थ",
+
+        "api_missing": "API कॉन्फ़िगरेशन उपलब्ध नहीं है।",
+        "api_busy": "सेवा अभी व्यस्त है। कृपया थोड़ी देर बाद पुनः प्रयास करें।",
+        "queue_remaining": "कतार में शेष कार्य",
     },
 
     "Marathi": {
@@ -344,7 +316,6 @@ TRANSLATIONS = {
 
         "agent_control": "एजंट नियंत्रण पॅनेल",
         "select_language": "भाषा निवडा",
-        "apply_language": "भाषा लागू करा",
 
         "farm_location": "शेतीचे स्थान",
 
@@ -399,6 +370,7 @@ TRANSLATIONS = {
 
         "chat_export": "चॅट एक्सपोर्ट",
         "export_pdf": "चॅट PDF म्हणून एक्सपोर्ट करा",
+        "download_pdf": "PDF डाउनलोड करा",
         "saved": "जतन केले",
 
         "user": "वापरकर्ता",
@@ -418,9 +390,9 @@ TRANSLATIONS = {
         "search": "शोधा",
         "search_failed": "शोध अयशस्वी",
         "found": "सापडले",
-        "show_nearby": "जवळील सर्व पर्याय दाखवा",
+        "show_nearby": "जवळील पर्याय दाखवा",
         "finding_options": "तुमच्यासाठी सर्वोत्तम पर्याय शोधत आहे...",
-        "listing_options": "मुख्य पर्याय दाखवत आहे...",
+        "listing_options": "जवळील पर्याय शोधत आहे...",
 
         "contact_title": "संपर्क",
         "team": "AI फार्म एजंट टीम",
@@ -443,6 +415,10 @@ TRANSLATIONS = {
 
         "unknown": "अज्ञात",
         "healthy": "निरोगी",
+
+        "api_missing": "API कॉन्फिगरेशन उपलब्ध नाही.",
+        "api_busy": "सेवा सध्या व्यस्त आहे. कृपया थोड्या वेळाने पुन्हा प्रयत्न करा.",
+        "queue_remaining": "रांगेतील उर्वरित कामे",
     },
 }
 
@@ -459,7 +435,7 @@ FONT_MAP = {
 
 
 # ============================================================
-# STABLE INTERNAL NAVIGATION
+# STABLE NAVIGATION
 # ============================================================
 
 NAV_ITEMS = [
@@ -477,22 +453,22 @@ NAV_ITEMS = [
 
 ACTION_MAP = {
     "Soil moisture modeling":
-        "Analyze soil moisture modeling and provide actionable irrigation guidance.",
+        "Analyze soil moisture and provide actionable irrigation guidance.",
 
     "Water requirement prediction":
         "Predict farm water requirements for the next 14 days.",
 
     "AI-driven irrigation schedule":
-        "Create an irrigation schedule with time windows.",
+        "Create an irrigation schedule with recommended time windows.",
 
     "Drought early warning":
-        "Generate drought early warning indicators.",
+        "Generate drought early-warning indicators and preventive actions.",
 
     "Water waste optimization %":
         "Estimate water waste and optimization opportunities.",
 
     "NPK prediction":
-        "Estimate nitrogen, phosphorus and potassium levels.",
+        "Estimate nitrogen, phosphorus and potassium requirements.",
 
     "pH imbalance detection":
         "Detect possible soil pH imbalance and recommend treatment.",
@@ -501,16 +477,16 @@ ACTION_MAP = {
         "Identify likely nutrient deficiencies using available farm context.",
 
     "Fertilizer recommendation":
-        "Generate fertilizer recommendations for the farm.",
+        "Generate practical fertilizer recommendations for the farm.",
 
     "Long-term soil health score":
-        "Estimate long-term soil health and yearly improvement plan.",
+        "Estimate long-term soil health and create a yearly improvement plan.",
 
     "Insect classification":
         "Identify likely insects and estimate agricultural risk.",
 
     "Pest density estimation":
-        "Estimate pest density and intervention threshold.",
+        "Estimate pest density and intervention thresholds.",
 
     "Swarm detection":
         "Detect possible swarm risk and generate an alert plan.",
@@ -519,7 +495,7 @@ ACTION_MAP = {
         "Predict possible pest migration patterns.",
 
     "Smart pesticide timing":
-        "Recommend the best timing for pesticide application.",
+        "Recommend the safest and most effective pesticide timing.",
 
     "Satellite imagery integration":
         "Create a satellite imagery integration strategy.",
@@ -540,7 +516,7 @@ ACTION_MAP = {
         "Design a camera-to-analysis-to-recommendation pipeline.",
 
     "Irrigation valve control":
-        "Generate irrigation valve control logic and failsafes.",
+        "Generate irrigation valve control logic and safety failsafes.",
 
     "Sprayer control":
         "Generate a smart sprayer control strategy.",
@@ -552,7 +528,7 @@ ACTION_MAP = {
         "Create an automated farm reporting system.",
 
     "Multi-modal fusion model":
-        "Design a fusion model using Vision, Weather, Soil and Time.",
+        "Design a fusion model using vision, weather, soil and time data.",
 
     "Disease risk 7-30 days":
         "Estimate disease risk for the next 7 to 30 days.",
@@ -561,7 +537,7 @@ ACTION_MAP = {
         "Predict frost risk and preventive actions.",
 
     "Heat stress prediction":
-        "Predict heat stress windows and protection actions.",
+        "Predict heat-stress windows and protection actions.",
 
     "Crop growth stage mapping":
         "Generate crop growth stage mapping.",
@@ -575,18 +551,34 @@ ACTION_MAP = {
 
 
 # ============================================================
-# TRANSLATION HELPER
+# TRANSLATION HELPERS
 # ============================================================
 
 def tr(key, fallback=None):
     language = st.session_state.get("language", "English")
-
-    return TRANSLATIONS.get(
+    language_data = TRANSLATIONS.get(
         language,
-        TRANSLATIONS["English"]
-    ).get(
+        TRANSLATIONS["English"],
+    )
+
+    return language_data.get(
         key,
-        fallback if fallback is not None else key
+        fallback if fallback is not None else key,
+    )
+
+
+def get_ai_language_instruction():
+    language = st.session_state.get("language", "English")
+
+    mapping = {
+        "English": "Respond entirely in English.",
+        "Hindi": "Respond entirely in Hindi using Devanagari script.",
+        "Marathi": "Respond entirely in Marathi using Devanagari script.",
+    }
+
+    return mapping.get(
+        language,
+        mapping["English"],
     )
 
 
@@ -599,28 +591,25 @@ def ensure_session_defaults():
         "language": "English",
         "logged_in": False,
         "username": "",
-        "photo_url":
-            "https://api.dicebear.com/8.x/adventurer/png?seed=Farmer",
-
+        "photo_url": (
+            "https://api.dicebear.com/8.x/adventurer/png?seed=Farmer"
+        ),
         "agent_status": "Idle",
         "task_queue": [],
         "reports": [],
         "chat_history": [],
         "detection_result": None,
-
-        # IMPORTANT:
-        # This is an INTERNAL ID, never a translated label.
         "menu_choice": "home",
-
         "location": "",
         "cost_estimation": None,
+        "pdf_data": None,
+        "pdf_name": None,
     }
 
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
-    # Migration for old sessions
     old_menu_labels = {
         "Home": "home",
         "होम": "home",
@@ -642,7 +631,7 @@ def ensure_session_defaults():
 
     st.session_state.menu_choice = old_menu_labels.get(
         st.session_state.menu_choice,
-        st.session_state.menu_choice
+        st.session_state.menu_choice,
     )
 
     valid_pages = [
@@ -663,19 +652,15 @@ def ensure_session_defaults():
 
 def apply_local_font():
     language = st.session_state.get("language", "English")
-
     font_family = FONT_MAP.get(
         language,
-        FONT_MAP["English"]
+        FONT_MAP["English"],
     )
 
     st.markdown(
         f"""
         <style>
-            html,
-            body,
-            [class*="css"],
-            .stApp {{
+            html, body, [class*="css"], .stApp {{
                 font-family: {font_family};
             }}
         </style>
@@ -690,7 +675,20 @@ def apply_local_font():
 
 def extract_message_content(data):
     try:
-        return data["choices"][0]["message"]["content"]
+        content = data["choices"][0]["message"]["content"]
+
+        if isinstance(content, list):
+            parts = []
+
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        parts.append(item.get("text", ""))
+
+            return "\n".join(parts).strip()
+
+        return content
+
     except (KeyError, IndexError, TypeError):
         return None
 
@@ -705,19 +703,19 @@ def clean_json_text(text):
         r"^```json\s*",
         "",
         text,
-        flags=re.IGNORECASE
+        flags=re.IGNORECASE,
     )
 
     text = re.sub(
         r"^```\s*",
         "",
-        text
+        text,
     )
 
     text = re.sub(
         r"\s*```$",
         "",
-        text
+        text,
     )
 
     return text.strip()
@@ -728,51 +726,76 @@ def safe_json_loads(text):
 
     try:
         return json.loads(text)
+
     except json.JSONDecodeError:
         pass
 
     match = re.search(
         r"\{.*\}",
         text,
-        flags=re.DOTALL
+        flags=re.DOTALL,
     )
 
     if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
+        return json.loads(match.group(0))
 
     raise ValueError("Could not parse valid JSON")
 
 
+def is_error_response(text):
+    if not isinstance(text, str):
+        return False
+
+    error_prefixes = (
+        "API key is missing",
+        "API configuration is missing",
+        "API URL is missing",
+        "Model is missing",
+        "HTTP Error",
+        "API Error",
+        "Network Error",
+        "Request timed out",
+        "Service is currently busy",
+    )
+
+    return text.startswith(error_prefixes)
+
+
 # ============================================================
-# MODEL REQUEST WITH RETRY
+# MODEL REQUEST WITH SMART RETRY
 # ============================================================
 
-def call_model(messages, model=None):
-    if not MODEL_API_KEY:
+def call_model(messages, model=None, temperature=0.2):
+    if not API_KEY:
         return (
             "API key is missing. "
-            "Add MODEL_API_KEY to Streamlit secrets or environment variables."
+            "Add API_KEY to .streamlit/secrets.toml."
         )
 
-    if not MODEL_API_URL:
-        return "MODEL_API_URL is missing."
+    if not API_URL:
+        return (
+            "API URL is missing. "
+            "Add API_URL to .streamlit/secrets.toml."
+        )
 
-    if model is None:
-        model = MODEL_NAME
+    selected_model = model or MODEL
+
+    if not selected_model:
+        return (
+            "Model is missing. "
+            "Add MODEL to .streamlit/secrets.toml."
+        )
 
     headers = {
-        "Authorization": f"Bearer {MODEL_API_KEY}",
+        "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
 
     payload = {
-        "model": model,
+        "model": selected_model,
         "messages": messages,
-        "temperature": 0.2,
+        "temperature": temperature,
     }
 
     retryable_status_codes = {
@@ -790,7 +813,7 @@ def call_model(messages, model=None):
     for attempt in range(MAX_RETRIES):
         try:
             response = requests.post(
-                MODEL_API_URL,
+                API_URL,
                 headers=headers,
                 json=payload,
                 timeout=REQUEST_TIMEOUT,
@@ -801,7 +824,7 @@ def call_model(messages, model=None):
                     data = response.json()
                 except ValueError:
                     return (
-                        "API returned invalid JSON:\n"
+                        "API Error: invalid JSON response: "
                         f"{response.text[:500]}"
                     )
 
@@ -810,7 +833,7 @@ def call_model(messages, model=None):
                 if content is not None:
                     return content
 
-                if "error" in data:
+                if isinstance(data, dict) and "error" in data:
                     error = data["error"]
 
                     if isinstance(error, dict):
@@ -822,8 +845,8 @@ def call_model(messages, model=None):
                     return f"API Error: {error}"
 
                 return (
-                    "Unexpected API response format: "
-                    f"{str(data)[:1000]}"
+                    "API Error: unexpected response format: "
+                    f"{str(data)[:800]}"
                 )
 
             last_error = (
@@ -843,12 +866,18 @@ def call_model(messages, model=None):
                     except ValueError:
                         delay = 0
                 else:
-                    delay = min(
+                    base_delay = min(
                         2 ** attempt,
-                        30
-                    ) + random.uniform(0, 1.5)
+                        20,
+                    )
+
+                    delay = (
+                        base_delay
+                        + random.uniform(0.5, 2.0)
+                    )
 
                 time.sleep(delay)
+                continue
 
         except requests.exceptions.Timeout:
             last_error = "Request timed out."
@@ -857,10 +886,10 @@ def call_model(messages, model=None):
             last_error = f"Network Error: {str(error)}"
 
         if attempt < MAX_RETRIES - 1:
-            delay = min(
-                2 ** attempt,
-                30
-            ) + random.uniform(0, 1)
+            delay = (
+                min(2 ** attempt, 20)
+                + random.uniform(0.5, 1.5)
+            )
 
             time.sleep(delay)
 
@@ -875,7 +904,7 @@ def call_model(messages, model=None):
 # ============================================================
 
 def analyze_plant_image(image_bytes, species_info):
-    if not MODEL_API_KEY:
+    if not API_KEY:
         return {
             "error": "API key is missing."
         }
@@ -890,6 +919,8 @@ Analyze this plant image and metadata.
 Metadata:
 {json.dumps(species_info, ensure_ascii=False)}
 
+{get_ai_language_instruction()}
+
 Identify:
 
 1. Specific crop or plant name.
@@ -902,9 +933,10 @@ Important:
 - Do not invent precise local measurements unless supplied.
 - Clearly treat uncertain conclusions as estimates.
 - Use only information reasonably inferable from the image and metadata.
+- All JSON values must be written in the selected language.
+- Return ONLY valid JSON.
 
-Return ONLY valid JSON:
-
+Required JSON:
 {{
     "crop_name": "Crop name",
     "disease_name": "Disease name or Healthy",
@@ -940,27 +972,22 @@ Return ONLY valid JSON:
 
     output = call_model(
         messages,
-        model=MODEL_NAME
+        model=VISION_MODEL,
     )
 
-    if output.startswith("HTTP Error"):
-        return {"error": output}
-
-    if output.startswith("API Error"):
-        return {"error": output}
-
-    if output.startswith("Service is currently busy"):
-        return {"error": output}
-
-    if output.startswith("Network Error"):
-        return {"error": output}
+    if is_error_response(output):
+        return {
+            "error": output
+        }
 
     try:
         return safe_json_loads(output)
 
     except Exception:
         return {
-            "error": "Model returned invalid analysis JSON.",
+            "error": (
+                "Model returned invalid analysis JSON."
+            ),
             "raw_response": output[:2000],
         }
 
@@ -970,6 +997,14 @@ Return ONLY valid JSON:
 # ============================================================
 
 def queue_task(task_name, prompt, model=None):
+    existing_tasks = {
+        item["task"]
+        for item in st.session_state.task_queue
+    }
+
+    if task_name in existing_tasks:
+        return False
+
     st.session_state.task_queue.append(
         {
             "task": task_name,
@@ -978,27 +1013,42 @@ def queue_task(task_name, prompt, model=None):
         }
     )
 
+    return True
 
-def run_all_background_tasks():
+
+def run_background_tasks():
     if not st.session_state.task_queue:
         return
 
-    while st.session_state.task_queue:
+    tasks_to_run = min(
+        MAX_TASKS_PER_RUN,
+        len(st.session_state.task_queue),
+    )
+
+    for _ in range(tasks_to_run):
         task = st.session_state.task_queue.pop(0)
 
         st.session_state.agent_status = (
             f"Running: {task['task']}"
         )
 
+        system_prompt = f"""
+You are an agricultural AI agent.
+
+Provide a structured operational report with:
+- assumptions
+- risks
+- recommended actions
+- measurable outcomes
+
+{get_ai_language_instruction()}
+"""
+
         report = call_model(
             [
                 {
                     "role": "system",
-                    "content": (
-                        "You are an agricultural AI agent. "
-                        "Provide a structured operational report with "
-                        "assumptions, risks, actions and measurable outcomes."
-                    ),
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",
@@ -1016,13 +1066,20 @@ def run_all_background_tasks():
                 ),
                 "title": task["task"],
                 "content": report,
-            }
+            },
         )
 
-        # Small delay helps avoid hammering the API.
-        time.sleep(1)
+        time.sleep(1.5)
 
-    st.session_state.agent_status = "All tasks completed"
+    if st.session_state.task_queue:
+        st.session_state.agent_status = (
+            f"Processed {tasks_to_run} task(s). "
+            f"{len(st.session_state.task_queue)} remaining."
+        )
+    else:
+        st.session_state.agent_status = (
+            "All tasks completed"
+        )
 
 
 # ============================================================
@@ -1032,17 +1089,17 @@ def run_all_background_tasks():
 def export_chat_to_pdf():
     os.makedirs(
         EXPORT_DIR,
-        exist_ok=True
+        exist_ok=True,
     )
 
     filename = (
-        f"chat_export_"
+        "chat_export_"
         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     )
 
     path = os.path.join(
         EXPORT_DIR,
-        filename
+        filename,
     )
 
     lines = [
@@ -1060,21 +1117,16 @@ def export_chat_to_pdf():
     page_lines = 35
 
     with PdfPages(path) as pdf:
-        total = max(
-            len(lines),
-            1
-        )
+        total = max(len(lines), 1)
 
         for i in range(
             0,
             total,
-            page_lines
+            page_lines,
         ):
             fig = plt.figure(
                 figsize=(8.27, 11.69)
             )
-
-            fig.patch.set_facecolor("white")
 
             chunk = "\n".join(
                 lines[i:i + page_lines]
@@ -1097,7 +1149,10 @@ def export_chat_to_pdf():
             pdf.savefig(fig)
             plt.close(fig)
 
-    return path
+    with open(path, "rb") as file:
+        pdf_data = file.read()
+
+    return filename, pdf_data
 
 
 # ============================================================
@@ -1109,24 +1164,21 @@ def login_block():
         with open(
             USER_DB,
             "w",
-            encoding="utf-8"
+            encoding="utf-8",
         ) as file:
-            json.dump(
-                {},
-                file
-            )
+            json.dump({}, file)
 
     try:
         with open(
             USER_DB,
             "r",
-            encoding="utf-8"
+            encoding="utf-8",
         ) as file:
             users = json.load(file)
 
     except (
         json.JSONDecodeError,
-        FileNotFoundError
+        FileNotFoundError,
     ):
         users = {}
 
@@ -1137,23 +1189,25 @@ def login_block():
 
     username = st.text_input(
         tr("username"),
-        key="login_username"
+        key="login_username",
     )
 
     password = st.text_input(
         tr("password"),
         type="password",
-        key="login_password"
+        key="login_password",
     )
 
     if st.button(
         tr("continue"),
-        use_container_width=True
+        use_container_width=True,
     ):
         username = username.strip()
 
         if not username or not password:
-            st.error("Username and password are required.")
+            st.error(
+                "Username and password are required."
+            )
             st.stop()
 
         if username in users:
@@ -1164,10 +1218,7 @@ def login_block():
             st.session_state.logged_in = True
             st.session_state.username = username
 
-            st.success(
-                tr("login_success")
-            )
-
+            st.success(tr("login_success"))
             st.rerun()
 
         else:
@@ -1176,22 +1227,19 @@ def login_block():
             with open(
                 USER_DB,
                 "w",
-                encoding="utf-8"
+                encoding="utf-8",
             ) as file:
                 json.dump(
                     users,
                     file,
                     ensure_ascii=False,
-                    indent=2
+                    indent=2,
                 )
 
             st.session_state.logged_in = True
             st.session_state.username = username
 
-            st.success(
-                tr("account_created")
-            )
-
+            st.success(tr("account_created"))
             st.rerun()
 
     st.stop()
@@ -1203,9 +1251,7 @@ def login_block():
 
 def sidebar_controls():
     with st.sidebar:
-        st.title(
-            tr("agent_control")
-        )
+        st.title(tr("agent_control"))
 
         languages = list(
             TRANSLATIONS.keys()
@@ -1240,31 +1286,31 @@ def sidebar_controls():
 
         est_location = st.text_input(
             tr("location_city"),
-            key="cost_location"
+            key="cost_location",
         )
 
         est_crop = st.text_input(
             tr("crop_name"),
-            key="cost_crop"
+            key="cost_crop",
         )
 
         est_acres = st.number_input(
             tr("total_acres"),
             min_value=0.0,
             step=0.1,
-            key="cost_acres"
+            key="cost_acres",
         )
 
         est_invested = st.number_input(
             tr("total_invested"),
             min_value=0.0,
             step=100.0,
-            key="cost_invested"
+            key="cost_invested",
         )
 
         if st.button(
             tr("estimate_profit"),
-            use_container_width=True
+            use_container_width=True,
         ):
             if (
                 not est_location
@@ -1281,6 +1327,8 @@ Location: {est_location}
 Crop: {est_crop}
 Acres: {est_acres}
 Investment: {est_invested}
+
+{get_ai_language_instruction()}
 
 Provide a cost, revenue and profit analysis.
 
@@ -1310,7 +1358,8 @@ Return ONLY valid JSON:
                                     "role": "system",
                                     "content": (
                                         "You are an agricultural "
-                                        "economic analyst."
+                                        "economic analyst. "
+                                        + get_ai_language_instruction()
                                     ),
                                 },
                                 {
@@ -1318,7 +1367,7 @@ Return ONLY valid JSON:
                                     "content": cost_prompt,
                                 },
                             ],
-                            model=REASONING_MODEL
+                            model=REASONING_MODEL,
                         )
                     )
 
@@ -1333,7 +1382,7 @@ Return ONLY valid JSON:
         selected_action = st.selectbox(
             tr("select_analysis"),
             list(ACTION_MAP.keys()),
-            key="agent_action"
+            key="agent_action",
         )
 
         col1, col2 = st.columns(2)
@@ -1341,27 +1390,32 @@ Return ONLY valid JSON:
         with col1:
             if st.button(
                 tr("run_analysis"),
-                use_container_width=True
+                use_container_width=True,
             ):
-                queue_task(
+                added = queue_task(
                     selected_action,
-                    ACTION_MAP[selected_action]
+                    ACTION_MAP[selected_action],
                 )
 
-                st.success(
-                    f"{tr('queued')}: "
-                    f"{selected_action}"
-                )
+                if added:
+                    st.success(
+                        f"{tr('queued')}: "
+                        f"{selected_action}"
+                    )
+                else:
+                    st.info(
+                        "This task is already queued."
+                    )
 
         with col2:
             if st.button(
                 tr("do_all_analysis"),
-                use_container_width=True
+                use_container_width=True,
             ):
                 for action, prompt in ACTION_MAP.items():
                     queue_task(
                         action,
-                        prompt
+                        prompt,
                     )
 
                 st.success(
@@ -1370,7 +1424,7 @@ Return ONLY valid JSON:
 
         if st.button(
             tr("run_core_layers"),
-            use_container_width=True
+            use_container_width=True,
         ):
             layers = [
                 "Vision Layer",
@@ -1385,13 +1439,19 @@ Return ONLY valid JSON:
                 queue_task(
                     layer,
                     (
-                        f"Generate an operational report for "
-                        f"{layer} with metrics and actions."
-                    )
+                        f"Generate an operational report "
+                        f"for {layer} with metrics and actions."
+                    ),
                 )
 
             st.success(
                 tr("layers_queued")
+            )
+
+        if st.session_state.task_queue:
+            st.caption(
+                f"{tr('queue_remaining')}: "
+                f"{len(st.session_state.task_queue)}"
             )
 
         st.markdown("---")
@@ -1404,24 +1464,30 @@ Return ONLY valid JSON:
 
         if st.button(
             tr("export_pdf"),
-            use_container_width=True
+            use_container_width=True,
         ):
-            pdf_path = export_chat_to_pdf()
-
-            st.success(
-                f"{tr('saved')}: {pdf_path}"
+            filename, pdf_data = (
+                export_chat_to_pdf()
             )
 
-            with open(
-                pdf_path,
-                "rb"
-            ) as file:
-                st.download_button(
-                    "Download PDF",
-                    data=file,
-                    file_name=os.path.basename(pdf_path),
-                    mime="application/pdf",
-                )
+            st.session_state.pdf_name = filename
+            st.session_state.pdf_data = pdf_data
+
+            st.success(
+                f"{tr('saved')}: {filename}"
+            )
+
+        if (
+            st.session_state.pdf_data
+            and st.session_state.pdf_name
+        ):
+            st.download_button(
+                tr("download_pdf"),
+                data=st.session_state.pdf_data,
+                file_name=st.session_state.pdf_name,
+                mime="application/pdf",
+                use_container_width=True,
+            )
 
         st.markdown("---")
 
@@ -1434,7 +1500,7 @@ Return ONLY valid JSON:
         try:
             st.image(
                 st.session_state.photo_url,
-                width=70
+                width=70,
             )
         except Exception:
             pass
@@ -1448,17 +1514,16 @@ Return ONLY valid JSON:
         ):
             st.button(
                 tr("settings"),
-                disabled=True
+                disabled=True,
             )
 
             if st.button(
                 tr("logout"),
-                use_container_width=True
+                use_container_width=True,
             ):
                 st.session_state.logged_in = False
                 st.session_state.username = ""
                 st.session_state.menu_choice = "home"
-
                 st.rerun()
 
 
@@ -1467,14 +1532,12 @@ Return ONLY valid JSON:
 # ============================================================
 
 def home_page():
-    st.title(
-        APP_TITLE
-    )
+    st.title(APP_TITLE)
 
     st.session_state.location = st.text_input(
         tr("farm_location"),
         value=st.session_state.location,
-        key="farm_location_input"
+        key="farm_location_input",
     )
 
     uploaded_image = st.file_uploader(
@@ -1484,7 +1547,7 @@ def home_page():
             "jpeg",
             "png",
         ],
-        key="leaf_upload"
+        key="leaf_upload",
     )
 
     if uploaded_image:
@@ -1495,13 +1558,13 @@ def home_page():
         st.image(
             image,
             caption=tr("upload"),
-            use_container_width=True
+            use_container_width=True,
         )
 
         if st.button(
             tr("analyze"),
             key="analyze_leaf_button",
-            use_container_width=True
+            use_container_width=True,
         ):
             try:
                 buffer = io.BytesIO()
@@ -1512,35 +1575,28 @@ def home_page():
 
                 rgb_image.save(
                     buffer,
-                    format="JPEG"
+                    format="JPEG",
+                    quality=90,
                 )
 
-                image_bytes = (
-                    buffer.getvalue()
-                )
+                image_bytes = buffer.getvalue()
 
                 status = st.status(
                     tr("running_pipeline"),
-                    expanded=True
+                    expanded=True,
                 )
 
                 status.write(
                     tr("getting_location")
                 )
 
-                time.sleep(0.3)
-
                 status.write(
                     tr("fetching_soil")
                 )
 
-                time.sleep(0.3)
-
                 status.write(
                     tr("fetching_water")
                 )
-
-                time.sleep(0.3)
 
                 status.write(
                     tr("analyzing_image")
@@ -1553,7 +1609,7 @@ def home_page():
 
                 result = analyze_plant_image(
                     image_bytes,
-                    species_info
+                    species_info,
                 )
 
                 status.write(
@@ -1563,7 +1619,7 @@ def home_page():
                 if "error" in result:
                     status.update(
                         label=result["error"],
-                        state="error"
+                        state="error",
                     )
 
                     st.error(
@@ -1577,7 +1633,7 @@ def home_page():
 
                     status.update(
                         label=tr("analysis_complete"),
-                        state="complete"
+                        state="complete",
                     )
 
                     st.success(
@@ -1616,7 +1672,7 @@ def home_page():
             st.write(
                 result.get(
                     "crop_name",
-                    tr("unknown")
+                    tr("unknown"),
                 )
             )
 
@@ -1628,7 +1684,7 @@ def home_page():
             st.write(
                 result.get(
                     "disease_name",
-                    tr("healthy")
+                    tr("healthy"),
                 )
             )
 
@@ -1639,7 +1695,7 @@ def home_page():
         st.write(
             result.get(
                 "description",
-                tr("no_description")
+                tr("no_description"),
             )
         )
 
@@ -1650,7 +1706,7 @@ def home_page():
         st.write(
             result.get(
                 "solution",
-                tr("no_solution")
+                tr("no_solution"),
             )
         )
 
@@ -1661,7 +1717,7 @@ def home_page():
         st.write(
             result.get(
                 "soil_insights",
-                tr("no_soil")
+                tr("no_soil"),
             )
         )
 
@@ -1672,7 +1728,7 @@ def home_page():
         st.write(
             result.get(
                 "water_forecast",
-                tr("no_water")
+                tr("no_water"),
             )
         )
 
@@ -1680,17 +1736,28 @@ def home_page():
             f"## {tr('risk_urgency')}"
         )
 
-        risk = result.get(
-            "risk_score",
-            "Low"
+        risk = str(
+            result.get(
+                "risk_score",
+                "Low",
+            )
         )
 
-        if risk.lower() == "high":
+        risk_lower = risk.lower()
+
+        if (
+            "high" in risk_lower
+            or "उच्च" in risk_lower
+            or "जास्त" in risk_lower
+        ):
             st.error(
                 f"**{tr('risk_level')}:** {risk}"
             )
 
-        elif risk.lower() == "medium":
+        elif (
+            "medium" in risk_lower
+            or "मध्यम" in risk_lower
+        ):
             st.warning(
                 f"**{tr('risk_level')}:** {risk}"
             )
@@ -1707,7 +1774,7 @@ def home_page():
         st.write(
             result.get(
                 "fertilizers",
-                tr("no_fertilizer")
+                tr("no_fertilizer"),
             )
         )
 
@@ -1748,24 +1815,35 @@ def chat_page():
             }
         )
 
+        recent_history = (
+            st.session_state.chat_history[-10:]
+        )
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a practical agricultural AI agent. "
+                    "Be useful, specific and honest about uncertainty. "
+                    + get_ai_language_instruction()
+                ),
+            }
+        ]
+
+        for item in recent_history:
+            messages.append(
+                {
+                    "role": item["role"],
+                    "content": item["text"],
+                }
+            )
+
         with st.spinner(
             tr("agent_thinking")
         ):
             answer = call_model(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a practical agricultural AI agent. "
-                            "Be useful, specific and honest about uncertainty."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": query,
-                    },
-                ],
-                model=REASONING_MODEL
+                messages,
+                model=REASONING_MODEL,
             )
 
         st.session_state.chat_history.append(
@@ -1782,34 +1860,35 @@ def chat_page():
 
 
 # ============================================================
-# SHOP / DOCTOR PAGE
+# SHOP / DOCTORS PAGE
 # ============================================================
 
 def shop_or_doctors_page(page_type):
     if page_type == "shop":
         title = tr("shop_title")
-        actor = "agricultural fertilizer supplier"
-
+        actor = (
+            "agricultural fertilizer supplier"
+        )
     else:
         title = tr("doctor_title")
-        actor = "agricultural expert"
+        actor = (
+            "agricultural expert"
+        )
 
-    st.title(
-        title
-    )
+    st.title(title)
 
     col1, col2 = st.columns(2)
 
     with col1:
         crop = st.text_input(
             tr("crop_name"),
-            key=f"{page_type}_crop"
+            key=f"{page_type}_crop",
         )
 
     with col2:
         requirement = st.text_input(
             tr("requirement"),
-            key=f"{page_type}_requirement"
+            key=f"{page_type}_requirement",
         )
 
     location = (
@@ -1823,7 +1902,7 @@ def shop_or_doctors_page(page_type):
         if st.button(
             tr("search"),
             key=f"{page_type}_search",
-            use_container_width=True
+            use_container_width=True,
         ):
             with st.spinner(
                 tr("finding_options")
@@ -1834,6 +1913,8 @@ Recommend useful {actor} options.
 Crop: {crop}
 Requirement: {requirement}
 Location: {location}
+
+{get_ai_language_instruction()}
 
 Do not invent phone numbers or exact addresses.
 If live local data is unavailable, clearly label the answer as general recommendations.
@@ -1846,27 +1927,27 @@ If live local data is unavailable, clearly label the answer as general recommend
                             "content": prompt,
                         }
                     ],
-                    model=REASONING_MODEL
+                    model=REASONING_MODEL,
                 )
 
-                st.write(
-                    response
-                )
+                st.write(response)
 
     with col_nearby:
         if st.button(
             tr("show_nearby"),
             key=f"{page_type}_nearby",
-            use_container_width=True
+            use_container_width=True,
         ):
             with st.spinner(
                 tr("listing_options")
             ):
                 prompt = f"""
-List general major categories and options for finding a nearby {actor}.
+List general major categories and ways to find a nearby {actor}.
 
 Crop: {crop}
 Location: {location}
+
+{get_ai_language_instruction()}
 
 Do not fabricate real businesses, contacts or addresses.
 Explain how the user should verify local availability.
@@ -1879,12 +1960,10 @@ Explain how the user should verify local availability.
                             "content": prompt,
                         }
                     ],
-                    model=REASONING_MODEL
+                    model=REASONING_MODEL,
                 )
 
-                st.write(
-                    response
-                )
+                st.write(response)
 
 
 # ============================================================
@@ -1903,6 +1982,7 @@ def contact_page():
 **{tr('email')}:** support@example.com
 
 **{tr('services')}:**
+
 Vision • Climate • Soil • Water • Market • Execution
 """
     )
@@ -1921,7 +2001,6 @@ def show_reports_panel():
         st.info(
             tr("no_reports")
         )
-
         return
 
     for report in st.session_state.reports[:12]:
@@ -1951,6 +2030,10 @@ def show_cost_report():
         f"## {tr('cost_report')}"
     )
 
+    if is_error_response(estimation):
+        st.error(estimation)
+        return
+
     try:
         data = safe_json_loads(
             estimation
@@ -1964,7 +2047,6 @@ def show_cost_report():
         st.write(
             estimation
         )
-
         return
 
     st.markdown(
@@ -1974,7 +2056,7 @@ def show_cost_report():
     st.write(
         data.get(
             "market_price",
-            "N/A"
+            "N/A",
         )
     )
 
@@ -1985,13 +2067,27 @@ def show_cost_report():
     st.write(
         data.get(
             "price_trend",
-            ""
+            "",
         )
     )
 
+    best_months = data.get(
+        "best_months",
+        [],
+    )
+
+    if isinstance(best_months, list):
+        best_months_text = ", ".join(
+            map(str, best_months)
+        )
+    else:
+        best_months_text = str(
+            best_months
+        )
+
     st.write(
         f"**{tr('best_months')}:** "
-        f"{', '.join(data.get('best_months', []))}"
+        f"{best_months_text}"
     )
 
     st.markdown(
@@ -2020,7 +2116,7 @@ def show_cost_report():
     st.write(
         data.get(
             "travel_costs",
-            "N/A"
+            "N/A",
         )
     )
 
@@ -2031,7 +2127,7 @@ def show_cost_report():
     st.info(
         data.get(
             "recommendation",
-            ""
+            "",
         )
     )
 
@@ -2043,21 +2139,18 @@ def show_cost_report():
 def main():
     st.set_page_config(
         page_title=APP_TITLE,
-        layout="wide"
+        layout="wide",
     )
 
     ensure_session_defaults()
-
     apply_local_font()
 
     login_block()
-
     sidebar_controls()
 
-    apply_local_font()
-
-    # Run queued tasks after sidebar interaction.
-    run_all_background_tasks()
+    # Run only a small batch each rerun.
+    # This prevents request explosions and greatly reduces 503 errors.
+    run_background_tasks()
 
     st.markdown(
         f"### {tr('agent_status')}: "
@@ -2066,14 +2159,8 @@ def main():
 
     # --------------------------------------------------------
     # NAVIGATION
-    #
-    # Internal ID:
-    # home / chat / shops / doctors / contact
-    #
-    # Display label:
-    # changes with language
-    #
-    # This is why language switching no longer breaks routing.
+    # Internal IDs never change.
+    # Only displayed labels are translated.
     # --------------------------------------------------------
 
     columns = st.columns(
@@ -2082,7 +2169,7 @@ def main():
 
     for index, (
         page_id,
-        translation_key
+        translation_key,
     ) in enumerate(NAV_ITEMS):
 
         with columns[index]:
@@ -2099,7 +2186,6 @@ def main():
                 st.session_state.menu_choice = (
                     page_id
                 )
-
                 st.rerun()
 
     # --------------------------------------------------------
@@ -2138,7 +2224,6 @@ def main():
     # --------------------------------------------------------
 
     show_cost_report()
-
     show_reports_panel()
 
 
