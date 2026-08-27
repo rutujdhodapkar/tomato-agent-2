@@ -2,9 +2,7 @@ import base64
 import io
 import json
 import os
-import random
 import re
-import time
 from datetime import datetime
 
 import requests
@@ -18,68 +16,54 @@ from PIL import Image
 # CONFIG
 # ============================================================
 
-APP_TITLE = "Agri Super Agent"
-
-MODEL_API_KEY = (
-    st.secrets.get("MODEL_API_KEY", None)
-    or os.getenv("MODEL_API_KEY")
+st.set_page_config(
+    page_title="Agri Super Agent",
+    page_icon="🌱",
+    layout="wide",
 )
 
-MODEL_API_URL = (
-    st.secrets.get(
-        "MODEL_API_URL",
-        "https://integrate.api.nvidia.com/v1/chat/completions"
-    )
-    or os.getenv("MODEL_API_URL")
-)
+NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
-MODEL_NAME = (
-    st.secrets.get(
-        "MODEL_NAME",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    )
-    or os.getenv(
-        "MODEL_NAME",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
-    )
-)
+# Put the model you have ACTUALLY confirmed is available
+# for your NVIDIA API account.
+DEFAULT_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+VISION_MODEL = DEFAULT_MODEL
+REASONING_MODEL = DEFAULT_MODEL
 
-REASONING_MODEL = (
-    st.secrets.get(
-        "REASONING_MODEL",
-        "nvidia/nemotron-3-ultra-550b-a55b"
-    )
-    or os.getenv(
-        "REASONING_MODEL",
-        "nvidia/nemotron-3-ultra-550b-a55b"
-    )
-)
-
-SARVAM_API_KEY = (
-    st.secrets.get("SARVAM_API_KEY", None)
-    or os.getenv("SARVAM_API_KEY")
-)
-
-SARVAM_TRANSLATE_URL = (
-    st.secrets.get(
-        "SARVAM_TRANSLATE_URL",
-        "https://api.sarvam.ai/translate"
-    )
-    or os.getenv(
-        "SARVAM_TRANSLATE_URL",
-        "https://api.sarvam.ai/translate"
-    )
-)
+SARVAM_TRANSLATE_URL = "https://api.sarvam.ai/translate"
 
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
 
-MAX_RETRIES = 5
-REQUEST_TIMEOUT = 120
+
+# ============================================================
+# LOAD SECRETS SAFELY
+# ============================================================
+
+def get_secret(name: str, default: str = "") -> str:
+    """
+    Reads secrets from:
+    1. Streamlit secrets
+    2. Environment variables
+
+    Never hardcode production API keys in source code.
+    """
+    try:
+        value = st.secrets.get(name, "")
+        if value:
+            return str(value).strip()
+    except Exception:
+        pass
+
+    return os.getenv(name, default).strip()
+
+
+NVIDIA_API_KEY = get_secret("NVIDIA_API_KEY")
+SARVAM_API_KEY = get_secret("SARVAM_API_KEY")
 
 
 # ============================================================
-# TRANSLATIONS
+# LANGUAGE CONFIG
 # ============================================================
 
 TRANSLATIONS = {
@@ -89,367 +73,46 @@ TRANSLATIONS = {
         "shops": "Shop",
         "doctors": "Doctors",
         "contact": "Contact",
-
         "login": "Login",
         "username": "Username",
         "password": "Password",
-        "continue": "Continue",
-        "login_success": "Login successful",
-        "account_created": "Account created",
-
         "upload": "Upload Leaf Image",
         "analyze": "Analyze",
-
-        "agent_control": "Agent Control Panel",
-        "select_language": "Select Language",
-        "apply_language": "Apply Language",
-
-        "farm_location": "Farm location",
-
-        "agent_status": "Agent Status",
-        "idle": "Idle",
-
-        "running_pipeline": "Running full farm intelligence pipeline...",
-        "getting_location": "Getting location information...",
-        "fetching_soil": "Fetching soil insights...",
-        "fetching_water": "Fetching water and weather insights...",
-        "analyzing_image": "Analyzing image...",
-        "thinking": "Thinking...",
-
-        "analysis_complete": "Analysis Complete!",
-        "full_analysis": "Full Analysis Report",
-
-        "crop_identified": "Crop Identified",
-        "disease_status": "Disease Status",
-        "condition_assessment": "Condition Assessment",
-        "actionable_prescription": "Actionable Prescription",
-
-        "soil_moisture": "Soil and Moisture Insights",
-        "water_weather": "Water and Weather Outlook",
-
-        "risk_urgency": "Risk and Urgency",
-        "risk_level": "Risk Level",
-
-        "fertilizer_recommendations": "Fertilizer Recommendations",
-
-        "no_description": "No description available.",
-        "no_solution": "No solution provided.",
-        "no_soil": "No soil insights available.",
-        "no_water": "No water forecast available.",
-        "no_fertilizer": "No fertilizer recommendations available.",
-
-        "quick_actions": "Quick Agent Actions",
-        "select_analysis": "Select analysis",
-        "run_analysis": "Run analysis",
-        "do_all_analysis": "Do all analysis",
-        "run_core_layers": "Run all core layers",
-        "queued": "Queued",
-        "all_queued": "All analyses queued!",
-        "layers_queued": "All layer analyses queued.",
-
-        "cost_estimation": "Cost Estimation",
-        "location_city": "Location (city/region)",
-        "crop_name": "Crop name",
-        "total_acres": "Total acres",
-        "total_invested": "Total invested",
-        "estimate_profit": "Estimate Cost & Profit",
-        "fill_fields": "Please fill all fields correctly.",
-
-        "chat_export": "Chat Export",
-        "export_pdf": "Export chat as PDF",
-        "saved": "Saved",
-
-        "user": "User",
-        "profile_menu": "Profile menu",
-        "settings": "Settings",
-        "logout": "Logout",
-
-        "agent_chat": "Agent Chat",
-        "chat_placeholder": (
-            "Ask about farming, costs, irrigation, market, disease..."
-        ),
-        "agent_thinking": "Agent is thinking...",
-
-        "shop_title": "Fertilizer Shop",
-        "doctor_title": "Agricultural Doctors",
-        "requirement": "Requirement",
-        "search": "Search",
-        "search_failed": "Search failed",
-        "found": "Found",
-        "show_nearby": "Show all nearby",
-        "finding_options": "Finding the best options for you...",
-        "listing_options": "Listing major options...",
-
-        "contact_title": "Contact",
-        "team": "AI Farm Agent Team",
-        "email": "Email",
-        "services": "Services",
-
-        "generated_reports": "Generated Reports",
-        "no_reports": (
-            "No reports yet. Run analyses from the left panel."
-        ),
-
-        "cost_report": "Cost and Profit Estimation Report",
-        "market_price": "Local Market Price",
-        "price_trend": "Price Trend and Best Months",
-        "best_months": "Best Months to Sell",
-        "cost_revenue": "Cost and Revenue Breakdown",
-        "production_cost": "Total Production Cost",
-        "expected_revenue": "Expected Revenue",
-        "profit_loss": "Profit or Loss",
-        "travel_costs": "Travel Costs",
-        "recommendation": "Recommendation",
-
-        "unknown": "Unknown",
-        "healthy": "Healthy",
+        "btn_desc": "📄 Disease Description",
+        "btn_sol": "💡 Get Solution",
+        "btn_fert": "🧪 Get Fertilizers",
     },
-
     "Hindi": {
         "home": "होम",
         "chat": "चैट",
         "shops": "दुकान",
         "doctors": "डॉक्टर्स",
         "contact": "संपर्क",
-
         "login": "लॉगिन",
         "username": "यूज़रनेम",
         "password": "पासवर्ड",
-        "continue": "जारी रखें",
-        "login_success": "लॉगिन सफल रहा",
-        "account_created": "अकाउंट बनाया गया",
-
-        "upload": "पत्ते की तस्वीर अपलोड करें",
-        "analyze": "विश्लेषण करें",
-
-        "agent_control": "एजेंट कंट्रोल पैनल",
-        "select_language": "भाषा चुनें",
-        "apply_language": "भाषा लागू करें",
-
-        "farm_location": "खेत का स्थान",
-
-        "agent_status": "एजेंट की स्थिति",
-        "idle": "निष्क्रिय",
-
-        "running_pipeline": "पूर्ण कृषि इंटेलिजेंस पाइपलाइन चल रही है...",
-        "getting_location": "स्थान की जानकारी प्राप्त की जा रही है...",
-        "fetching_soil": "मिट्टी की जानकारी प्राप्त की जा रही है...",
-        "fetching_water": "पानी और मौसम की जानकारी प्राप्त की जा रही है...",
-        "analyzing_image": "तस्वीर का विश्लेषण किया जा रहा है...",
-        "thinking": "सोच रहा है...",
-
-        "analysis_complete": "विश्लेषण पूरा हुआ!",
-        "full_analysis": "पूर्ण विश्लेषण रिपोर्ट",
-
-        "crop_identified": "पहचानी गई फसल",
-        "disease_status": "रोग की स्थिति",
-        "condition_assessment": "स्थिति का आकलन",
-        "actionable_prescription": "कार्रवाई योग्य समाधान",
-
-        "soil_moisture": "मिट्टी और नमी की जानकारी",
-        "water_weather": "पानी और मौसम का पूर्वानुमान",
-
-        "risk_urgency": "जोखिम और प्राथमिकता",
-        "risk_level": "जोखिम स्तर",
-
-        "fertilizer_recommendations": "उर्वरक सिफारिशें",
-
-        "no_description": "कोई विवरण उपलब्ध नहीं है।",
-        "no_solution": "कोई समाधान उपलब्ध नहीं है।",
-        "no_soil": "मिट्टी की जानकारी उपलब्ध नहीं है।",
-        "no_water": "पानी का पूर्वानुमान उपलब्ध नहीं है।",
-        "no_fertilizer": "उर्वरक सिफारिश उपलब्ध नहीं है।",
-
-        "quick_actions": "त्वरित एजेंट कार्य",
-        "select_analysis": "विश्लेषण चुनें",
-        "run_analysis": "विश्लेषण चलाएं",
-        "do_all_analysis": "सभी विश्लेषण चलाएं",
-        "run_core_layers": "सभी मुख्य लेयर चलाएं",
-        "queued": "कतार में जोड़ा गया",
-        "all_queued": "सभी विश्लेषण कतार में हैं!",
-        "layers_queued": "सभी लेयर विश्लेषण कतार में हैं।",
-
-        "cost_estimation": "लागत अनुमान",
-        "location_city": "स्थान (शहर/क्षेत्र)",
-        "crop_name": "फसल का नाम",
-        "total_acres": "कुल एकड़",
-        "total_invested": "कुल निवेश",
-        "estimate_profit": "लागत और लाभ का अनुमान",
-        "fill_fields": "कृपया सभी जानकारी सही भरें।",
-
-        "chat_export": "चैट एक्सपोर्ट",
-        "export_pdf": "चैट को PDF में एक्सपोर्ट करें",
-        "saved": "सेव किया गया",
-
-        "user": "उपयोगकर्ता",
-        "profile_menu": "प्रोफाइल मेनू",
-        "settings": "सेटिंग्स",
-        "logout": "लॉगआउट",
-
-        "agent_chat": "एजेंट चैट",
-        "chat_placeholder": (
-            "खेती, लागत, सिंचाई, बाजार या रोग के बारे में पूछें..."
-        ),
-        "agent_thinking": "एजेंट सोच रहा है...",
-
-        "shop_title": "उर्वरक दुकान",
-        "doctor_title": "कृषि डॉक्टर",
-        "requirement": "आवश्यकता",
-        "search": "खोजें",
-        "search_failed": "खोज असफल",
-        "found": "मिल गया",
-        "show_nearby": "सभी नजदीकी विकल्प दिखाएं",
-        "finding_options": "आपके लिए सर्वोत्तम विकल्प खोजे जा रहे हैं...",
-        "listing_options": "मुख्य विकल्प दिखाए जा रहे हैं...",
-
-        "contact_title": "संपर्क",
-        "team": "AI फार्म एजेंट टीम",
-        "email": "ईमेल",
-        "services": "सेवाएं",
-
-        "generated_reports": "तैयार रिपोर्टें",
-        "no_reports": "अभी कोई रिपोर्ट नहीं है।",
-
-        "cost_report": "लागत और लाभ अनुमान रिपोर्ट",
-        "market_price": "स्थानीय बाजार मूल्य",
-        "price_trend": "मूल्य प्रवृत्ति और सर्वोत्तम महीने",
-        "best_months": "बेचने के सर्वोत्तम महीने",
-        "cost_revenue": "लागत और आय विवरण",
-        "production_cost": "कुल उत्पादन लागत",
-        "expected_revenue": "अपेक्षित आय",
-        "profit_loss": "लाभ या हानि",
-        "travel_costs": "यात्रा लागत",
-        "recommendation": "सिफारिश",
-
-        "unknown": "अज्ञात",
-        "healthy": "स्वस्थ",
+        "upload": "पत्ता अपलोड करें",
+        "analyze": "विश्लेषण",
+        "btn_desc": "📄 बीमारी का विवरण",
+        "btn_sol": "💡 समाधान प्राप्त करें",
+        "btn_fert": "🧪 उर्वरक प्राप्त करें",
     },
-
     "Marathi": {
         "home": "मुख्यपृष्ठ",
         "chat": "चॅट",
         "shops": "दुकान",
         "doctors": "डॉक्टर्स",
         "contact": "संपर्क",
-
         "login": "लॉगिन",
-        "username": "वापरकर्तानाव",
+        "username": "वापरकर्ता नाव",
         "password": "पासवर्ड",
-        "continue": "पुढे जा",
-        "login_success": "लॉगिन यशस्वी झाले",
-        "account_created": "खाते तयार केले",
-
-        "upload": "पानाचा फोटो अपलोड करा",
-        "analyze": "विश्लेषण करा",
-
-        "agent_control": "एजंट नियंत्रण पॅनेल",
-        "select_language": "भाषा निवडा",
-        "apply_language": "भाषा लागू करा",
-
-        "farm_location": "शेतीचे स्थान",
-
-        "agent_status": "एजंटची स्थिती",
-        "idle": "निष्क्रिय",
-
-        "running_pipeline": "पूर्ण कृषी इंटेलिजेंस पाइपलाइन सुरू आहे...",
-        "getting_location": "स्थानाची माहिती घेत आहे...",
-        "fetching_soil": "मातीची माहिती घेत आहे...",
-        "fetching_water": "पाणी आणि हवामानाची माहिती घेत आहे...",
-        "analyzing_image": "प्रतिमेचे विश्लेषण सुरू आहे...",
-        "thinking": "विचार करत आहे...",
-
-        "analysis_complete": "विश्लेषण पूर्ण झाले!",
-        "full_analysis": "संपूर्ण विश्लेषण अहवाल",
-
-        "crop_identified": "ओळखलेले पीक",
-        "disease_status": "रोगाची स्थिती",
-        "condition_assessment": "स्थितीचे मूल्यांकन",
-        "actionable_prescription": "कृतीयोग्य उपाय",
-
-        "soil_moisture": "माती आणि ओलाव्याची माहिती",
-        "water_weather": "पाणी आणि हवामान अंदाज",
-
-        "risk_urgency": "धोका आणि तातडी",
-        "risk_level": "धोका स्तर",
-
-        "fertilizer_recommendations": "खतांच्या शिफारसी",
-
-        "no_description": "कोणतेही वर्णन उपलब्ध नाही.",
-        "no_solution": "कोणताही उपाय उपलब्ध नाही.",
-        "no_soil": "मातीची माहिती उपलब्ध नाही.",
-        "no_water": "पाण्याचा अंदाज उपलब्ध नाही.",
-        "no_fertilizer": "खतांची शिफारस उपलब्ध नाही.",
-
-        "quick_actions": "त्वरित एजंट क्रिया",
-        "select_analysis": "विश्लेषण निवडा",
-        "run_analysis": "विश्लेषण सुरू करा",
-        "do_all_analysis": "सर्व विश्लेषण करा",
-        "run_core_layers": "सर्व मुख्य स्तर सुरू करा",
-        "queued": "रांगेत जोडले",
-        "all_queued": "सर्व विश्लेषणे रांगेत आहेत!",
-        "layers_queued": "सर्व स्तरांचे विश्लेषण रांगेत आहे.",
-
-        "cost_estimation": "खर्चाचा अंदाज",
-        "location_city": "स्थान (शहर/प्रदेश)",
-        "crop_name": "पिकाचे नाव",
-        "total_acres": "एकूण एकर",
-        "total_invested": "एकूण गुंतवणूक",
-        "estimate_profit": "खर्च आणि नफा अंदाज",
-        "fill_fields": "कृपया सर्व माहिती योग्य भरा.",
-
-        "chat_export": "चॅट एक्सपोर्ट",
-        "export_pdf": "चॅट PDF म्हणून एक्सपोर्ट करा",
-        "saved": "जतन केले",
-
-        "user": "वापरकर्ता",
-        "profile_menu": "प्रोफाइल मेनू",
-        "settings": "सेटिंग्ज",
-        "logout": "लॉगआउट",
-
-        "agent_chat": "एजंट चॅट",
-        "chat_placeholder": (
-            "शेती, खर्च, सिंचन, बाजार किंवा रोगाबद्दल विचारा..."
-        ),
-        "agent_thinking": "एजंट विचार करत आहे...",
-
-        "shop_title": "खत दुकान",
-        "doctor_title": "कृषी डॉक्टर",
-        "requirement": "आवश्यकता",
-        "search": "शोधा",
-        "search_failed": "शोध अयशस्वी",
-        "found": "सापडले",
-        "show_nearby": "जवळील सर्व पर्याय दाखवा",
-        "finding_options": "तुमच्यासाठी सर्वोत्तम पर्याय शोधत आहे...",
-        "listing_options": "मुख्य पर्याय दाखवत आहे...",
-
-        "contact_title": "संपर्क",
-        "team": "AI फार्म एजंट टीम",
-        "email": "ईमेल",
-        "services": "सेवा",
-
-        "generated_reports": "तयार केलेले अहवाल",
-        "no_reports": "अजून कोणतेही अहवाल नाहीत.",
-
-        "cost_report": "खर्च आणि नफा अंदाज अहवाल",
-        "market_price": "स्थानिक बाजार भाव",
-        "price_trend": "भावाचा कल आणि सर्वोत्तम महिने",
-        "best_months": "विक्रीसाठी सर्वोत्तम महिने",
-        "cost_revenue": "खर्च आणि उत्पन्न तपशील",
-        "production_cost": "एकूण उत्पादन खर्च",
-        "expected_revenue": "अपेक्षित उत्पन्न",
-        "profit_loss": "नफा किंवा तोटा",
-        "travel_costs": "प्रवास खर्च",
-        "recommendation": "शिफारस",
-
-        "unknown": "अज्ञात",
-        "healthy": "निरोगी",
+        "upload": "पान अपलोड करा",
+        "analyze": "विश्लेषण",
+        "btn_desc": "📄 रोगाचे वर्णन",
+        "btn_sol": "💡 उपाय मिळवा",
+        "btn_fert": "🧪 खते मिळवा",
     },
 }
-
-
-# ============================================================
-# FONT SETTINGS
-# ============================================================
 
 FONT_MAP = {
     "English": "Arial, sans-serif",
@@ -457,18 +120,11 @@ FONT_MAP = {
     "Marathi": "'Noto Sans Devanagari', 'Mangal', sans-serif",
 }
 
-
-# ============================================================
-# STABLE INTERNAL NAVIGATION
-# ============================================================
-
-NAV_ITEMS = [
-    ("home", "home"),
-    ("chat", "chat"),
-    ("shops", "shops"),
-    ("doctors", "doctors"),
-    ("contact", "contact"),
-]
+LANGUAGE_CODE_MAP = {
+    "English": "en-IN",
+    "Hindi": "hi-IN",
+    "Marathi": "mr-IN",
+}
 
 
 # ============================================================
@@ -477,117 +133,101 @@ NAV_ITEMS = [
 
 ACTION_MAP = {
     "Soil moisture modeling":
-        "Analyze soil moisture modeling and provide actionable irrigation guidance.",
+        "Analyze soil moisture using available farm metadata. Clearly state assumptions and provide actionable irrigation guidance.",
 
     "Water requirement prediction":
-        "Predict farm water requirements for the next 14 days.",
+        "Predict farm water requirement for the next 14 days. Clearly state assumptions and uncertainty.",
 
     "AI-driven irrigation schedule":
-        "Create an irrigation schedule with time windows.",
+        "Create an AI-driven irrigation schedule with recommended time windows and estimated liters per acre.",
 
     "Drought early warning":
-        "Generate drought early warning indicators.",
+        "Generate drought early-warning indicators for the next 30 days based on supplied data and assumptions.",
 
     "Water waste optimization %":
-        "Estimate water waste and optimization opportunities.",
+        "Estimate current water waste percentage and identify optimization opportunities. State assumptions.",
 
     "NPK prediction":
-        "Estimate nitrogen, phosphorus and potassium levels.",
+        "Estimate nitrogen, phosphorus, and potassium status only from available evidence. Do not pretend laboratory measurements exist.",
 
     "pH imbalance detection":
-        "Detect possible soil pH imbalance and recommend treatment.",
+        "Assess possible pH imbalance and recommend a treatment protocol. Clearly distinguish estimated versus measured values.",
 
     "Nutrient deficiency fusion":
-        "Identify likely nutrient deficiencies using available farm context.",
+        "Use available leaf and soil evidence to identify likely nutrient deficiencies and confidence levels.",
 
     "Fertilizer recommendation":
-        "Generate fertilizer recommendations for the farm.",
+        "Build a fertilizer recommendation based on crop, growth stage, symptoms, and available soil evidence.",
 
     "Long-term soil health score":
-        "Estimate long-term soil health and yearly improvement plan.",
+        "Estimate a long-term soil health score with assumptions and a yearly improvement plan.",
 
     "Insect classification":
-        "Identify likely insects and estimate agricultural risk.",
+        "Classify likely insects and risk level based on supplied observations.",
 
     "Pest density estimation":
-        "Estimate pest density and intervention threshold.",
+        "Estimate pest density only when sufficient evidence exists. Otherwise request required observations and give intervention thresholds.",
 
     "Swarm detection":
-        "Detect possible swarm risk and generate an alert plan.",
+        "Assess swarm risk and provide an alert and mitigation plan.",
 
     "Migration pattern prediction":
-        "Predict possible pest migration patterns.",
+        "Predict possible wind-based pest migration patterns over 7 days. Clearly state assumptions.",
 
     "Smart pesticide timing":
-        "Recommend the best timing for pesticide application.",
+        "Recommend pesticide timing based on available weather and pest information. Include safety and label-compliance warnings.",
 
     "Satellite imagery integration":
-        "Create a satellite imagery integration strategy.",
+        "Provide a practical satellite imagery integration architecture and explain which crop signals can be inferred.",
 
     "Growth stage tracking":
-        "Track crop growth stages and next milestones.",
+        "Estimate crop growth stage from available metadata and identify the next milestones.",
 
     "Production estimate per acre":
-        "Estimate production per acre with confidence ranges.",
+        "Estimate production per acre with a confidence range and clearly state assumptions.",
 
     "Profit forecast":
-        "Generate a profit forecast using yield, costs and prices.",
+        "Generate a profit forecast using supplied yield, costs, and market-price assumptions.",
 
     "Market price integration":
-        "Analyze market trends and suggest selling timing.",
+        "Explain how to integrate verified market-price data and suggest sell timing. Do not invent live prices.",
 
-    "Camera to recommendation pipeline":
-        "Design a camera-to-analysis-to-recommendation pipeline.",
+    "Camera→Analyze→Recommend→Auto-execute":
+        "Design a camera-to-analysis-to-recommendation-to-execution pipeline with safety gates and human approval.",
 
     "Irrigation valve control":
-        "Generate irrigation valve control logic and failsafes.",
+        "Generate irrigation valve control logic including sensor validation, timeout protection, and failsafes.",
 
     "Sprayer control":
-        "Generate a smart sprayer control strategy.",
+        "Generate a smart sprayer control strategy with safety and manual override.",
 
     "Drone-based spraying":
-        "Plan a drone spraying route and timing.",
+        "Plan a drone-based spraying workflow including route logic, timing, weather constraints, and safety checks.",
 
     "Automated farm reporting":
-        "Create an automated farm reporting system.",
+        "Create an automated farm-reporting template with KPIs, alerts, and recommendations.",
 
     "Multi-modal fusion model":
-        "Design a fusion model using Vision, Weather, Soil and Time.",
+        "Design a multimodal fusion architecture using Vision, Weather, Soil, Time, and Farm metadata.",
 
     "Disease risk 7-30 days":
-        "Estimate disease risk for the next 7 to 30 days.",
+        "Estimate disease risk for 7-30 days using actual available climate data or clearly stated assumptions.",
 
     "Frost risk alerts":
-        "Predict frost risk and preventive actions.",
+        "Assess frost risk and recommend preventive actions.",
 
     "Heat stress prediction":
-        "Predict heat stress windows and protection actions.",
+        "Assess heat-stress risk and recommend protection actions.",
 
     "Crop growth stage mapping":
-        "Generate crop growth stage mapping.",
+        "Design a crop growth-stage mapping system using multimodal farm data.",
 
     "Price prediction AI":
-        "Estimate crop production cost and expected market profit.",
+        "Calculate total crop production cost and expected profit using supplied costs and explicitly stated market assumptions.",
 
     "Full Agent Pipeline":
-        "Design an end-to-end agricultural AI agent pipeline.",
+        "Build one complete end-to-end agricultural AI agent pipeline using Vision, Climate, Soil, Water, Market, and Execution layers.",
 }
-
-
-# ============================================================
-# TRANSLATION HELPER
-# ============================================================
-
-def tr(key, fallback=None):
-    language = st.session_state.get("language", "English")
-
-    return TRANSLATIONS.get(
-        language,
-        TRANSLATIONS["English"]
-    ).get(
-        key,
-        fallback if fallback is not None else key
-    )
 
 
 # ============================================================
@@ -599,19 +239,13 @@ def ensure_session_defaults():
         "language": "English",
         "logged_in": False,
         "username": "",
-        "photo_url":
-            "https://api.dicebear.com/8.x/adventurer/png?seed=Farmer",
-
+        "photo_url": "https://api.dicebear.com/8.x/adventurer/png?seed=Farmer",
         "agent_status": "Idle",
         "task_queue": [],
         "reports": [],
         "chat_history": [],
         "detection_result": None,
-
-        # IMPORTANT:
-        # This is an INTERNAL ID, never a translated label.
-        "menu_choice": "home",
-
+        "menu_choice": "Home",
         "location": "",
         "cost_estimation": None,
     }
@@ -620,62 +254,18 @@ def ensure_session_defaults():
         if key not in st.session_state:
             st.session_state[key] = value
 
-    # Migration for old sessions
-    old_menu_labels = {
-        "Home": "home",
-        "होम": "home",
-        "मुख्यपृष्ठ": "home",
-
-        "Chat": "chat",
-        "चैट": "chat",
-        "चॅट": "chat",
-
-        "Shop": "shops",
-        "दुकान": "shops",
-
-        "Doctors": "doctors",
-        "डॉक्टर्स": "doctors",
-
-        "Contact": "contact",
-        "संपर्क": "contact",
-    }
-
-    st.session_state.menu_choice = old_menu_labels.get(
-        st.session_state.menu_choice,
-        st.session_state.menu_choice
-    )
-
-    valid_pages = [
-        "home",
-        "chat",
-        "shops",
-        "doctors",
-        "contact",
-    ]
-
-    if st.session_state.menu_choice not in valid_pages:
-        st.session_state.menu_choice = "home"
-
 
 # ============================================================
 # FONT
 # ============================================================
 
-def apply_local_font():
-    language = st.session_state.get("language", "English")
-
-    font_family = FONT_MAP.get(
-        language,
-        FONT_MAP["English"]
-    )
+def apply_local_font(language):
+    font_family = FONT_MAP.get(language, FONT_MAP["English"])
 
     st.markdown(
         f"""
         <style>
-            html,
-            body,
-            [class*="css"],
-            .stApp {{
+            html, body, [class*="css"], .stApp {{
                 font-family: {font_family};
             }}
         </style>
@@ -685,86 +275,167 @@ def apply_local_font():
 
 
 # ============================================================
-# API RESPONSE HELPERS
+# TRANSLATION
 # ============================================================
 
-def extract_message_content(data):
-    try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        return None
-
-
-def clean_json_text(text):
-    if not isinstance(text, str):
+@st.cache_data(show_spinner=False, ttl=3600)
+def translate_text(text, language):
+    if language == "English" or not isinstance(text, str):
         return text
 
-    text = text.strip()
+    if not SARVAM_API_KEY:
+        return text
 
-    text = re.sub(
-        r"^```json\s*",
+    stripped = text.strip()
+
+    if not stripped:
+        return text
+
+    headers = {
+        "api-subscription-key": SARVAM_API_KEY,
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "source_language_code": "en-IN",
+        "target_language_code": LANGUAGE_CODE_MAP.get(language, "en-IN"),
+        "speaker_gender": "Male",
+        "mode": "formal",
+        "model": "mayura:v1",
+        "enable_preprocessing": True,
+        "numerals_format": "international",
+        "input": stripped,
+    }
+
+    try:
+        response = requests.post(
+            SARVAM_TRANSLATE_URL,
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        translated = (
+            data.get("translated_text")
+            or data.get("translation")
+            or data.get("output")
+            or data.get("data", {}).get("translated_text")
+        )
+
+        if isinstance(translated, str) and translated.strip():
+            return translated
+
+    except Exception:
+        pass
+
+    return text
+
+
+def t(text):
+    return translate_text(text, st.session_state.language)
+
+
+def translate_result_data(data, language):
+    if language == "English":
+        return data
+
+    if isinstance(data, dict):
+        return {
+            key: translate_result_data(value, language)
+            for key, value in data.items()
+        }
+
+    if isinstance(data, list):
+        return [
+            translate_result_data(item, language)
+            for item in data
+        ]
+
+    if isinstance(data, str):
+        return translate_text(data, language)
+
+    return data
+
+
+# ============================================================
+# JSON CLEANER
+# ============================================================
+
+def extract_json(text):
+    """
+    Extract JSON safely from:
+    - plain JSON
+    - ```json blocks
+    - ``` blocks
+    - surrounding model text
+    """
+
+    if isinstance(text, dict):
+        return text
+
+    if not isinstance(text, str):
+        raise ValueError("Model output is not a string")
+
+    cleaned = text.strip()
+
+    # Remove markdown code fences
+    cleaned = re.sub(
+        r"^```(?:json)?\s*",
         "",
-        text,
+        cleaned,
         flags=re.IGNORECASE
     )
 
-    text = re.sub(
-        r"^```\s*",
-        "",
-        text
-    )
-
-    text = re.sub(
+    cleaned = re.sub(
         r"\s*```$",
         "",
-        text
+        cleaned
     )
 
-    return text.strip()
-
-
-def safe_json_loads(text):
-    text = clean_json_text(text)
-
+    # First try direct JSON
     try:
-        return json.loads(text)
+        return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
-    match = re.search(
-        r"\{.*\}",
-        text,
-        flags=re.DOTALL
-    )
+    # Try extracting first JSON object
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
 
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start:end + 1]
+        return json.loads(candidate)
 
-    raise ValueError("Could not parse valid JSON")
+    raise ValueError("No valid JSON object found")
 
 
 # ============================================================
-# MODEL REQUEST WITH RETRY
+# NVIDIA API
 # ============================================================
 
-def call_model(messages, model=None):
-    if not MODEL_API_KEY:
+import random
+import time
+import requests
+
+
+def call_nvidia(
+    messages,
+    model=DEFAULT_MODEL,
+    max_tokens=2500,
+    max_retries=6,
+):
+    if not NVIDIA_API_KEY:
         return (
-            "API key is missing. "
-            "Add MODEL_API_KEY to Streamlit secrets or environment variables."
+            "API Configuration Error: NVIDIA_API_KEY is missing. "
+            "Add it to .streamlit/secrets.toml."
         )
 
-    if not MODEL_API_URL:
-        return "MODEL_API_URL is missing."
-
-    if model is None:
-        model = MODEL_NAME
-
     headers = {
-        "Authorization": f"Bearer {MODEL_API_KEY}",
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
@@ -773,195 +444,296 @@ def call_model(messages, model=None):
         "model": model,
         "messages": messages,
         "temperature": 0.2,
+        "max_tokens": max_tokens,
     }
 
-    retryable_status_codes = {
-        408,
-        409,
-        429,
-        500,
-        502,
-        503,
-        504,
-    }
+    last_error = ""
 
-    last_error = "Unknown error"
+    for attempt in range(max_retries):
 
-    for attempt in range(MAX_RETRIES):
         try:
             response = requests.post(
-                MODEL_API_URL,
+                NVIDIA_API_URL,
                 headers=headers,
                 json=payload,
-                timeout=REQUEST_TIMEOUT,
+                timeout=180,
             )
-
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                except ValueError:
-                    return (
-                        "API returned invalid JSON:\n"
-                        f"{response.text[:500]}"
-                    )
-
-                content = extract_message_content(data)
-
-                if content is not None:
-                    return content
-
-                if "error" in data:
-                    error = data["error"]
-
-                    if isinstance(error, dict):
-                        return (
-                            "API Error: "
-                            f"{error.get('message', str(error))}"
-                        )
-
-                    return f"API Error: {error}"
-
-                return (
-                    "Unexpected API response format: "
-                    f"{str(data)[:1000]}"
-                )
-
-            last_error = (
-                f"HTTP Error {response.status_code}: "
-                f"{response.text[:800]}"
-            )
-
-            if response.status_code not in retryable_status_codes:
-                return last_error
-
-            if attempt < MAX_RETRIES - 1:
-                retry_after = response.headers.get("Retry-After")
-
-                if retry_after:
-                    try:
-                        delay = float(retry_after)
-                    except ValueError:
-                        delay = 0
-                else:
-                    delay = min(
-                        2 ** attempt,
-                        30
-                    ) + random.uniform(0, 1.5)
-
-                time.sleep(delay)
 
         except requests.exceptions.Timeout:
             last_error = "Request timed out."
 
-        except requests.exceptions.RequestException as error:
-            last_error = f"Network Error: {str(error)}"
+        except requests.exceptions.RequestException as e:
+            last_error = f"Network Error: {str(e)}"
 
-        if attempt < MAX_RETRIES - 1:
-            delay = min(
-                2 ** attempt,
-                30
-            ) + random.uniform(0, 1)
+        else:
+            # Success
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    return data["choices"][0]["message"]["content"]
 
-            time.sleep(delay)
+                except (
+                    ValueError,
+                    KeyError,
+                    IndexError,
+                    TypeError,
+                ):
+                    return (
+                        "Unexpected successful response: "
+                        f"{response.text[:1000]}"
+                    )
+
+            # Retry only temporary server overloads
+            if response.status_code in (429, 500, 502, 503, 504):
+
+                last_error = (
+                    f"Temporary NVIDIA server error "
+                    f"{response.status_code}: "
+                    f"{response.text[:500]}"
+                )
+
+            # Do NOT retry auth errors
+            elif response.status_code in (401, 403):
+                return (
+                    f"Authorization Error {response.status_code}: "
+                    f"{response.text[:1000]}"
+                )
+
+            else:
+                return (
+                    f"HTTP Error {response.status_code}: "
+                    f"{response.text[:1000]}"
+                )
+
+        # Don't sleep after final attempt
+        if attempt < max_retries - 1:
+
+            # 2, 4, 8, 16, 32 seconds + random jitter
+            wait_time = min(
+                2 ** (attempt + 1),
+                60
+            ) + random.uniform(0, 1.5)
+
+            time.sleep(wait_time)
 
     return (
-        "Service is currently busy after multiple retries. "
-        f"Last error: {last_error}"
+        "NVIDIA service is currently overloaded after "
+        f"{max_retries} attempts. Last error: {last_error}"
     )
 
+# ============================================================
+# API TEST
+# ============================================================
+
+def test_nvidia_api():
+    """
+    Simple authentication and model-access test.
+    """
+
+    result = call_nvidia(
+        messages=[
+            {
+                "role": "user",
+                "content": "Reply with exactly: NVIDIA API connection successful"
+            }
+        ],
+        model=DEFAULT_MODEL,
+        max_tokens=50,
+    )
+
+    return result
+
 
 # ============================================================
-# VISION / PLANT ANALYSIS
+# VISION + REASONING
 # ============================================================
 
-def analyze_plant_image(image_bytes, species_info):
-    if not MODEL_API_KEY:
+def run_reasoning_model(image_bytes, species_info):
+    """
+    Sends plant image + farm metadata to NVIDIA.
+    Returns parsed JSON dictionary.
+    """
+
+    if not NVIDIA_API_KEY:
         return {
-            "error": "API key is missing."
+            "error": (
+                "NVIDIA_API_KEY is missing. "
+                "Add it to .streamlit/secrets.toml."
+            )
         }
 
-    base64_image = base64.b64encode(
-        image_bytes
-    ).decode("utf-8")
+    base64_image = base64.b64encode(image_bytes).decode("utf-8")
 
     prompt = f"""
-Analyze this plant image and metadata.
+You are an agricultural AI assistant.
 
-Metadata:
+Analyze the uploaded plant/leaf image and the farm metadata.
+
+Farm metadata:
 {json.dumps(species_info, ensure_ascii=False)}
 
-Identify:
+Your job:
 
-1. Specific crop or plant name.
-2. Most likely disease or health issue.
-3. Soil health observations.
-4. Water and irrigation guidance.
-5. Overall risk score.
+1. Identify the most likely crop or plant.
+2. Identify the most likely disease, pest damage, nutrient deficiency,
+   or health issue.
+3. If the plant appears healthy, use "Healthy".
+4. Provide a short explanation of visible evidence.
+5. Provide safe, practical treatment or care steps.
+6. Recommend nutrients or fertilizer categories when appropriate.
+7. Assess soil and moisture only from available evidence.
 
-Important:
-- Do not invent precise local measurements unless supplied.
-- Clearly treat uncertain conclusions as estimates.
-- Use only information reasonably inferable from the image and metadata.
+CRITICAL RULES:
+- Do NOT pretend you fetched weather, soil reports, satellite data,
+  market data, or laboratory tests unless those values were explicitly provided.
+- Clearly label estimates as estimates.
+- Do NOT invent exact local measurements.
+- If location information is missing, say that local conditions cannot
+  be determined precisely.
+- Include a confidence score from 0 to 100.
 
-Return ONLY valid JSON:
+Return ONLY valid JSON.
+
+Required structure:
 
 {{
-    "crop_name": "Crop name",
-    "disease_name": "Disease name or Healthy",
-    "description": "Condition description",
-    "solution": "Step-by-step solution",
-    "fertilizers": "Recommended nutrients or fertilizers",
-    "soil_insights": "Soil health observations",
-    "water_forecast": "Water and irrigation guidance",
-    "risk_score": "Low, Medium or High"
+    "crop_name": "Name or Unknown",
+    "disease_name": "Disease name, issue, or Healthy",
+    "description": "Visible condition and evidence",
+    "solution": "Step-by-step actionable guidance",
+    "fertilizers": "Recommended nutrients or fertilizer categories",
+    "soil_insights": "Evidence-based soil insight or what soil data is needed",
+    "water_forecast": "Irrigation guidance based only on available data and assumptions",
+    "risk_score": "Low, Medium, or High",
+    "confidence": 0
 }}
 """
 
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": prompt,
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": (
-                            "data:image/jpeg;base64,"
-                            f"{base64_image}"
-                        )
+    headers = {
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    payload = {
+        "model": VISION_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt,
                     },
-                },
-            ],
-        }
-    ]
-
-    output = call_model(
-        messages,
-        model=MODEL_NAME
-    )
-
-    if output.startswith("HTTP Error"):
-        return {"error": output}
-
-    if output.startswith("API Error"):
-        return {"error": output}
-
-    if output.startswith("Service is currently busy"):
-        return {"error": output}
-
-    if output.startswith("Network Error"):
-        return {"error": output}
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": (
+                                "data:image/jpeg;base64,"
+                                f"{base64_image}"
+                            )
+                        },
+                    },
+                ],
+            }
+        ],
+        "temperature": 0.1,
+        "max_tokens": 2500,
+    }
 
     try:
-        return safe_json_loads(output)
+        response = requests.post(
+            NVIDIA_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=120,
+        )
 
-    except Exception:
+    except requests.exceptions.Timeout:
         return {
-            "error": "Model returned invalid analysis JSON.",
-            "raw_response": output[:2000],
+            "error": "NVIDIA API request timed out."
+        }
+
+    except requests.exceptions.RequestException as e:
+        return {
+            "error": f"Network Error: {str(e)}"
+        }
+
+    if response.status_code == 401:
+        return {
+            "error": (
+                "NVIDIA Authentication Error (401): "
+                "API key is invalid or expired."
+            )
+        }
+
+    if response.status_code == 403:
+        return {
+            "error": (
+                "NVIDIA Authorization Error (403). "
+                "The API key is not authorized for this endpoint or model. "
+                f"Model requested: {VISION_MODEL}. "
+                "Create a fresh NVIDIA API key and verify model access."
+            ),
+            "details": response.text[:1000],
+        }
+
+    if response.status_code != 200:
+        return {
+            "error": f"HTTP Error {response.status_code}",
+            "details": response.text[:1000],
+        }
+
+    try:
+        result = response.json()
+
+    except ValueError:
+        return {
+            "error": "API returned invalid JSON.",
+            "raw": response.text[:1000],
+        }
+
+    if "error" in result:
+        error = result["error"]
+
+        return {
+            "error": (
+                error.get("message", str(error))
+                if isinstance(error, dict)
+                else str(error)
+            ),
+            "raw_response": result,
+        }
+
+    try:
+        output_text = result["choices"][0]["message"]["content"]
+
+        parsed = extract_json(output_text)
+
+        # Ensure expected fields exist
+        defaults = {
+            "crop_name": "Unknown",
+            "disease_name": "Unknown",
+            "description": "",
+            "solution": "",
+            "fertilizers": "",
+            "soil_insights": "",
+            "water_forecast": "",
+            "risk_score": "Low",
+            "confidence": 0,
+        }
+
+        for key, value in defaults.items():
+            parsed.setdefault(key, value)
+
+        return parsed
+
+    except Exception as e:
+        return {
+            "error": (
+                f"Could not parse model response: {str(e)}"
+            ),
+            "raw_response": result,
         }
 
 
@@ -969,36 +741,49 @@ Return ONLY valid JSON:
 # TASK QUEUE
 # ============================================================
 
-def queue_task(task_name, prompt, model=None):
+def queue_task(task_name, prompt, model=REASONING_MODEL):
     st.session_state.task_queue.append(
         {
             "task": task_name,
             "prompt": prompt,
-            "model": model or REASONING_MODEL,
+            "model": model,
         }
     )
 
 
 def run_all_background_tasks():
-    if not st.session_state.task_queue:
-        return
+    """
+    Note:
+    Streamlit is synchronous. This is a task queue, not true background
+    execution. It runs tasks sequentially during the current app run.
+    """
 
     while st.session_state.task_queue:
+
         task = st.session_state.task_queue.pop(0)
 
         st.session_state.agent_status = (
             f"Running: {task['task']}"
         )
 
-        report = call_model(
-            [
+        system_prompt = """
+You are an agricultural AI analyst.
+
+Produce a structured operational report.
+
+Rules:
+- Never claim that live web, weather, satellite, market, or sensor data
+  was accessed unless the data was actually provided.
+- Explicitly state assumptions.
+- Separate observations, estimates, and recommendations.
+- Include risk level and actionable next steps.
+"""
+
+        report = call_nvidia(
+            messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You are an agricultural AI agent. "
-                        "Provide a structured operational report with "
-                        "assumptions, risks, actions and measurable outcomes."
-                    ),
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",
@@ -1016,11 +801,8 @@ def run_all_background_tasks():
                 ),
                 "title": task["task"],
                 "content": report,
-            }
+            },
         )
-
-        # Small delay helps avoid hammering the API.
-        time.sleep(1)
 
     st.session_state.agent_status = "All tasks completed"
 
@@ -1030,19 +812,14 @@ def run_all_background_tasks():
 # ============================================================
 
 def export_chat_to_pdf():
-    os.makedirs(
-        EXPORT_DIR,
-        exist_ok=True
-    )
-
-    filename = (
-        f"chat_export_"
-        f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-    )
+    os.makedirs(EXPORT_DIR, exist_ok=True)
 
     path = os.path.join(
         EXPORT_DIR,
-        filename
+        (
+            "chat_export_"
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        ),
     )
 
     lines = [
@@ -1050,43 +827,37 @@ def export_chat_to_pdf():
         "",
     ]
 
-    for message in st.session_state.chat_history:
+    for msg in st.session_state.chat_history:
         lines.append(
-            f"[{message['time']}] "
-            f"{message['role'].upper()}: "
-            f"{message['text']}"
+            f"[{msg['time']}] "
+            f"{msg['role'].upper()}: "
+            f"{msg['text']}"
         )
 
-    page_lines = 35
+    if len(lines) <= 2:
+        lines.append("No chat messages to export.")
 
     with PdfPages(path) as pdf:
-        total = max(
-            len(lines),
-            1
-        )
+
+        page_lines = 30
 
         for i in range(
             0,
-            total,
+            len(lines),
             page_lines
         ):
             fig = plt.figure(
                 figsize=(8.27, 11.69)
             )
 
-            fig.patch.set_facecolor("white")
-
-            chunk = "\n".join(
+            text_chunk = "\n".join(
                 lines[i:i + page_lines]
             )
-
-            if not chunk:
-                chunk = "No chat messages to export."
 
             fig.text(
                 0.05,
                 0.95,
-                chunk,
+                text_chunk,
                 va="top",
                 fontsize=9,
                 family="sans-serif",
@@ -1094,7 +865,7 @@ def export_chat_to_pdf():
             )
 
             plt.axis("off")
-            pdf.savefig(fig)
+            pdf.savefig(fig, bbox_inches="tight")
             plt.close(fig)
 
     return path
@@ -1104,17 +875,9 @@ def export_chat_to_pdf():
 # LOGIN
 # ============================================================
 
-def login_block():
+def load_users():
     if not os.path.exists(USER_DB):
-        with open(
-            USER_DB,
-            "w",
-            encoding="utf-8"
-        ) as file:
-            json.dump(
-                {},
-                file
-            )
+        return {}
 
     try:
         with open(
@@ -1122,41 +885,55 @@ def login_block():
             "r",
             encoding="utf-8"
         ) as file:
-            users = json.load(file)
+            return json.load(file)
 
-    except (
-        json.JSONDecodeError,
-        FileNotFoundError
-    ):
-        users = {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_users(users):
+    with open(
+        USER_DB,
+        "w",
+        encoding="utf-8"
+    ) as file:
+        json.dump(
+            users,
+            file,
+            indent=2
+        )
+
+
+def login_block(lang_text):
 
     if st.session_state.logged_in:
         return
 
-    st.title(tr("login"))
+    st.title(lang_text["login"])
 
     username = st.text_input(
-        tr("username"),
-        key="login_username"
+        lang_text["username"]
     )
 
     password = st.text_input(
-        tr("password"),
+        lang_text["password"],
         type="password",
-        key="login_password"
     )
 
-    if st.button(
-        tr("continue"),
-        use_container_width=True
-    ):
+    if st.button("Continue"):
+
         username = username.strip()
 
         if not username or not password:
-            st.error("Username and password are required.")
+            st.error(
+                "Username and password are required."
+            )
             st.stop()
 
+        users = load_users()
+
         if username in users:
+
             if users[username] != password:
                 st.error("Invalid password.")
                 st.stop()
@@ -1164,34 +941,17 @@ def login_block():
             st.session_state.logged_in = True
             st.session_state.username = username
 
-            st.success(
-                tr("login_success")
-            )
-
+            st.success("Login successful.")
             st.rerun()
 
         else:
             users[username] = password
-
-            with open(
-                USER_DB,
-                "w",
-                encoding="utf-8"
-            ) as file:
-                json.dump(
-                    users,
-                    file,
-                    ensure_ascii=False,
-                    indent=2
-                )
+            save_users(users)
 
             st.session_state.logged_in = True
             st.session_state.username = username
 
-            st.success(
-                tr("account_created")
-            )
-
+            st.success("Account created.")
             st.rerun()
 
     st.stop()
@@ -1201,177 +961,182 @@ def login_block():
 # SIDEBAR
 # ============================================================
 
-def sidebar_controls():
+def sidebar_controls(lang_text):
+
     with st.sidebar:
-        st.title(
-            tr("agent_control")
-        )
 
-        languages = list(
+        st.title("🌱 Agent Control Panel")
+
+        # -----------------------------
+        # API STATUS
+        # -----------------------------
+
+        st.subheader("API Status")
+
+        if NVIDIA_API_KEY:
+            st.success("NVIDIA API key loaded")
+        else:
+            st.error("NVIDIA API key missing")
+
+        if st.button("Test NVIDIA API"):
+            with st.spinner("Testing connection..."):
+                result = test_nvidia_api()
+
+            if (
+                "Error" in result
+                or "403" in result
+                or "401" in result
+            ):
+                st.error(result)
+            else:
+                st.success(result)
+
+        st.markdown("---")
+
+        # -----------------------------
+        # LANGUAGE
+        # -----------------------------
+
+        current_index = list(
             TRANSLATIONS.keys()
-        )
-
-        current_language = (
+        ).index(
             st.session_state.language
         )
 
-        language_index = languages.index(
-            current_language
+        new_language = st.selectbox(
+            "Select Language",
+            list(TRANSLATIONS.keys()),
+            index=current_index,
         )
 
-        selected_language = st.selectbox(
-            tr("select_language"),
-            languages,
-            index=language_index,
-            key="language_selector",
-        )
-
-        if selected_language != current_language:
-            st.session_state.language = selected_language
+        if st.button("Apply Language"):
+            st.session_state.language = new_language
             st.rerun()
 
         st.markdown("---")
 
-        # ---------------- COST ----------------
+        # -----------------------------
+        # COST ESTIMATION
+        # -----------------------------
 
-        st.subheader(
-            tr("cost_estimation")
-        )
+        st.subheader("Cost Estimation")
 
         est_location = st.text_input(
-            tr("location_city"),
-            key="cost_location"
+            "Location (city/region)"
         )
 
         est_crop = st.text_input(
-            tr("crop_name"),
-            key="cost_crop"
+            "Crop name"
         )
 
         est_acres = st.number_input(
-            tr("total_acres"),
+            "Total acres",
             min_value=0.0,
             step=0.1,
-            key="cost_acres"
         )
 
         est_invested = st.number_input(
-            tr("total_invested"),
+            "Total invested (₹ or $)",
             min_value=0.0,
             step=100.0,
-            key="cost_invested"
         )
 
-        if st.button(
-            tr("estimate_profit"),
-            use_container_width=True
-        ):
+        if st.button("Estimate Cost & Profit"):
+
             if (
                 not est_location
                 or not est_crop
                 or est_acres <= 0
             ):
                 st.error(
-                    tr("fill_fields")
+                    "Please fill location, crop, and acres."
                 )
 
             else:
+
                 cost_prompt = f"""
 Location: {est_location}
 Crop: {est_crop}
 Acres: {est_acres}
 Investment: {est_invested}
 
-Provide a cost, revenue and profit analysis.
+Create an agricultural cost and profit analysis.
 
-Use estimates when live market data is unavailable.
+IMPORTANT:
+You do not have verified live market access in this request.
+Do not invent current market prices.
+
+Use assumptions where required and clearly label them.
 
 Return ONLY valid JSON:
 
 {{
-    "market_price": "...",
-    "price_trend": "...",
-    "best_months": ["..."],
-    "total_cost": "...",
-    "expected_revenue": "...",
-    "profit_or_loss": "...",
-    "travel_costs": "...",
-    "recommendation": "..."
+    "market_price": "Verified data unavailable unless provided; otherwise estimated assumption",
+    "price_trend": "Trend analysis with assumptions",
+    "best_months": ["Month"],
+    "total_cost": "Estimated cost",
+    "expected_revenue": "Estimated revenue",
+    "profit_or_loss": "Estimated profit/loss",
+    "travel_costs": "Estimated transport costs",
+    "recommendation": "Actionable recommendation"
 }}
 """
 
-                with st.spinner(
-                    tr("thinking")
-                ):
-                    st.session_state.cost_estimation = (
-                        call_model(
-                            [
-                                {
-                                    "role": "system",
-                                    "content": (
-                                        "You are an agricultural "
-                                        "economic analyst."
-                                    ),
-                                },
-                                {
-                                    "role": "user",
-                                    "content": cost_prompt,
-                                },
-                            ],
-                            model=REASONING_MODEL
-                        )
-                    )
+                estimation = call_nvidia(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are an agricultural economic analyst. "
+                                "Never fabricate live market data."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": cost_prompt,
+                        },
+                    ],
+                    model=REASONING_MODEL,
+                )
+
+                st.session_state.cost_estimation = estimation
 
         st.markdown("---")
 
-        # ---------------- QUICK ACTIONS ----------------
+        # -----------------------------
+        # QUICK ACTIONS
+        # -----------------------------
 
-        st.subheader(
-            tr("quick_actions")
-        )
+        st.subheader("Quick Agent Actions")
 
         selected_action = st.selectbox(
-            tr("select_analysis"),
+            "Select analysis",
             list(ACTION_MAP.keys()),
-            key="agent_action"
         )
 
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button(
-                tr("run_analysis"),
-                use_container_width=True
-            ):
+            if st.button("Run analysis"):
                 queue_task(
                     selected_action,
-                    ACTION_MAP[selected_action]
+                    ACTION_MAP[selected_action],
                 )
-
                 st.success(
-                    f"{tr('queued')}: "
-                    f"{selected_action}"
+                    f"Queued: {selected_action}"
                 )
 
         with col2:
-            if st.button(
-                tr("do_all_analysis"),
-                use_container_width=True
-            ):
+            if st.button("Do all analysis"):
                 for action, prompt in ACTION_MAP.items():
-                    queue_task(
-                        action,
-                        prompt
-                    )
+                    queue_task(action, prompt)
 
                 st.success(
-                    tr("all_queued")
+                    "All analyses queued."
                 )
 
-        if st.button(
-            tr("run_core_layers"),
-            use_container_width=True
-        ):
+        if st.button("Run all core layers"):
+
             layers = [
                 "Vision Layer",
                 "Climate Layer",
@@ -1386,328 +1151,328 @@ Return ONLY valid JSON:
                     layer,
                     (
                         f"Generate an operational report for "
-                        f"{layer} with metrics and actions."
+                        f"{layer}. State all assumptions and "
+                        f"do not claim unavailable data sources."
+                    ),
+                )
+
+            st.success(
+                "Core layers queued."
+            )
+
+        st.markdown("---")
+
+        # -----------------------------
+        # PDF EXPORT
+        # -----------------------------
+
+        st.subheader("Chat Export")
+
+        if st.button("Export chat as PDF"):
+
+            try:
+                pdf_path = export_chat_to_pdf()
+
+                with open(
+                    pdf_path,
+                    "rb"
+                ) as pdf_file:
+
+                    st.download_button(
+                        "Download PDF",
+                        data=pdf_file.read(),
+                        file_name=os.path.basename(
+                            pdf_path
+                        ),
+                        mime="application/pdf",
                     )
-                )
 
-            st.success(
-                tr("layers_queued")
-            )
-
-        st.markdown("---")
-
-        # ---------------- PDF ----------------
-
-        st.subheader(
-            tr("chat_export")
-        )
-
-        if st.button(
-            tr("export_pdf"),
-            use_container_width=True
-        ):
-            pdf_path = export_chat_to_pdf()
-
-            st.success(
-                f"{tr('saved')}: {pdf_path}"
-            )
-
-            with open(
-                pdf_path,
-                "rb"
-            ) as file:
-                st.download_button(
-                    "Download PDF",
-                    data=file,
-                    file_name=os.path.basename(pdf_path),
-                    mime="application/pdf",
+            except Exception as e:
+                st.error(
+                    f"PDF export failed: {str(e)}"
                 )
 
         st.markdown("---")
 
-        # ---------------- USER ----------------
+        # -----------------------------
+        # USER
+        # -----------------------------
 
-        st.subheader(
-            tr("user")
+        st.subheader("User")
+
+        st.image(
+            st.session_state.photo_url,
+            width=70,
         )
-
-        try:
-            st.image(
-                st.session_state.photo_url,
-                width=70
-            )
-        except Exception:
-            pass
 
         st.write(
             st.session_state.username
         )
 
-        with st.expander(
-            tr("profile_menu")
-        ):
-            st.button(
-                tr("settings"),
-                disabled=True
-            )
-
-            if st.button(
-                tr("logout"),
-                use_container_width=True
-            ):
-                st.session_state.logged_in = False
-                st.session_state.username = ""
-                st.session_state.menu_choice = "home"
-
-                st.rerun()
+        if st.button("Logout"):
+            st.session_state.logged_in = False
+            st.session_state.username = ""
+            st.rerun()
 
 
 # ============================================================
 # HOME PAGE
 # ============================================================
 
-def home_page():
-    st.title(
-        APP_TITLE
+def home_page(lang_text):
+
+    st.title("🌱 Agricultural Super AI Agent")
+
+    st.caption(
+        "Image analysis is AI-assisted. "
+        "Recommendations should be verified before real-world treatment."
     )
 
     st.session_state.location = st.text_input(
-        tr("farm_location"),
+        "Farm location",
         value=st.session_state.location,
-        key="farm_location_input"
+        placeholder="Example: Pune, Maharashtra",
     )
 
     uploaded_image = st.file_uploader(
-        tr("upload"),
-        type=[
-            "jpg",
-            "jpeg",
-            "png",
-        ],
-        key="leaf_upload"
+        lang_text["upload"],
+        type=["jpg", "jpeg", "png"],
     )
 
     if uploaded_image:
-        image = Image.open(
-            uploaded_image
-        )
 
-        st.image(
-            image,
-            caption=tr("upload"),
-            use_container_width=True
-        )
+        try:
+            image = Image.open(
+                uploaded_image
+            )
+
+            st.image(
+                image,
+                caption="Uploaded Leaf",
+                use_container_width=True,
+            )
+
+        except Exception as e:
+            st.error(
+                f"Could not open image: {str(e)}"
+            )
+            return
 
         if st.button(
-            tr("analyze"),
-            key="analyze_leaf_button",
-            use_container_width=True
+            lang_text["analyze"],
+            type="primary",
         ):
+
+            if not NVIDIA_API_KEY:
+                st.error(
+                    "NVIDIA_API_KEY is missing. "
+                    "Configure Streamlit secrets first."
+                )
+                return
+
             try:
                 buffer = io.BytesIO()
 
-                rgb_image = image.convert(
+                # Convert RGBA / PNG safely to JPEG
+                processed_image = image.convert(
                     "RGB"
                 )
 
-                rgb_image.save(
+                processed_image.save(
                     buffer,
-                    format="JPEG"
+                    format="JPEG",
+                    quality=90,
                 )
 
-                image_bytes = (
-                    buffer.getvalue()
-                )
+                image_bytes = buffer.getvalue()
 
-                status = st.status(
-                    tr("running_pipeline"),
-                    expanded=True
-                )
-
-                status.write(
-                    tr("getting_location")
-                )
-
-                time.sleep(0.3)
-
-                status.write(
-                    tr("fetching_soil")
-                )
-
-                time.sleep(0.3)
-
-                status.write(
-                    tr("fetching_water")
-                )
-
-                time.sleep(0.3)
-
-                status.write(
-                    tr("analyzing_image")
-                )
-
-                species_info = {
-                    "location":
-                        st.session_state.location
-                }
-
-                result = analyze_plant_image(
-                    image_bytes,
-                    species_info
-                )
-
-                status.write(
-                    tr("thinking")
-                )
-
-                if "error" in result:
-                    status.update(
-                        label=result["error"],
-                        state="error"
-                    )
-
-                    st.error(
-                        result["error"]
-                    )
-
-                else:
-                    st.session_state.detection_result = (
-                        result
-                    )
-
-                    status.update(
-                        label=tr("analysis_complete"),
-                        state="complete"
-                    )
-
-                    st.success(
-                        tr("analysis_complete")
-                    )
-
-            except Exception as error:
+            except Exception as e:
                 st.error(
-                    f"Analysis failed: {str(error)}"
+                    f"Image processing failed: {str(e)}"
+                )
+                return
+
+            status = st.status(
+                "Running plant analysis...",
+                expanded=True,
+            )
+
+            status.write(
+                "Processing uploaded image..."
+            )
+
+            status.write(
+                "Preparing farm metadata..."
+            )
+
+            species_info = {
+                "location": (
+                    st.session_state.location
+                    or "Not provided"
+                )
+            }
+
+            status.write(
+                "Sending image to NVIDIA model..."
+            )
+
+            result = run_reasoning_model(
+                image_bytes,
+                species_info,
+            )
+
+            st.session_state.detection_result = result
+
+            if "error" not in result:
+
+                status.update(
+                    label="Analysis complete",
+                    state="complete",
+                    expanded=False,
                 )
 
-    # ---------------- RESULT ----------------
+                st.success(
+                    "Analysis Complete!"
+                )
+
+            else:
+
+                status.update(
+                    label="Analysis failed",
+                    state="error",
+                    expanded=True,
+                )
+
+                st.error(
+                    result["error"]
+                )
+
+                if result.get("details"):
+                    st.code(
+                        result["details"]
+                    )
+
+    # ========================================================
+    # RESULTS
+    # ========================================================
 
     result = (
         st.session_state.detection_result
     )
 
-    if (
-        result
-        and isinstance(result, dict)
-        and "error" not in result
-    ):
+    if result and "error" not in result:
+
+        res = translate_result_data(
+            result,
+            st.session_state.language,
+        )
+
         st.markdown("---")
 
         st.markdown(
-            f"## {tr('full_analysis')}"
+            "## Full Analysis Report"
         )
 
-        col_crop, col_disease = st.columns(2)
+        col_crop, col_disease, col_confidence = (
+            st.columns(3)
+        )
 
         with col_crop:
-            st.markdown(
-                f"### {tr('crop_identified')}"
-            )
-
-            st.write(
-                result.get(
+            st.metric(
+                "Crop Identified",
+                res.get(
                     "crop_name",
-                    tr("unknown")
-                )
+                    "Unknown"
+                ),
             )
 
         with col_disease:
-            st.markdown(
-                f"### {tr('disease_status')}"
-            )
-
-            st.write(
-                result.get(
+            st.metric(
+                "Disease Status",
+                res.get(
                     "disease_name",
-                    tr("healthy")
-                )
+                    "Unknown"
+                ),
+            )
+
+        with col_confidence:
+            st.metric(
+                "AI Confidence",
+                f"{res.get('confidence', 0)}%",
             )
 
         st.markdown(
-            f"## {tr('condition_assessment')}"
+            "### Condition Assessment"
         )
 
         st.write(
-            result.get(
+            res.get(
                 "description",
-                tr("no_description")
+                "No description available.",
             )
         )
 
         st.markdown(
-            f"## {tr('actionable_prescription')}"
+            "### Actionable Prescription"
         )
 
         st.write(
-            result.get(
+            res.get(
                 "solution",
-                tr("no_solution")
+                "No solution provided.",
             )
         )
 
         st.markdown(
-            f"## {tr('soil_moisture')}"
+            "### Soil and Moisture Insights"
         )
 
         st.write(
-            result.get(
+            res.get(
                 "soil_insights",
-                tr("no_soil")
+                "No soil insights available.",
             )
         )
 
         st.markdown(
-            f"## {tr('water_weather')}"
+            "### Water and Irrigation Guidance"
         )
 
         st.write(
-            result.get(
+            res.get(
                 "water_forecast",
-                tr("no_water")
+                "No irrigation guidance available.",
             )
         )
 
         st.markdown(
-            f"## {tr('risk_urgency')}"
+            "### Risk and Urgency"
         )
 
-        risk = result.get(
-            "risk_score",
-            "Low"
-        )
-
-        if risk.lower() == "high":
-            st.error(
-                f"**{tr('risk_level')}:** {risk}"
+        risk = str(
+            res.get(
+                "risk_score",
+                "Low"
             )
+        ).strip().lower()
 
-        elif risk.lower() == "medium":
-            st.warning(
-                f"**{tr('risk_level')}:** {risk}"
-            )
+        if risk == "high":
+            st.error("Risk Level: High")
+
+        elif risk == "medium":
+            st.warning("Risk Level: Medium")
 
         else:
-            st.success(
-                f"**{tr('risk_level')}:** {risk}"
-            )
+            st.success("Risk Level: Low")
 
         st.markdown(
-            f"## {tr('fertilizer_recommendations')}"
+            "### Fertilizer Recommendations"
         )
 
         st.write(
-            result.get(
+            res.get(
                 "fertilizers",
-                tr("no_fertilizer")
+                "No fertilizer recommendations available.",
             )
         )
 
@@ -1717,27 +1482,27 @@ def home_page():
 # ============================================================
 
 def chat_page():
-    st.title(
-        tr("agent_chat")
-    )
 
-    for message in st.session_state.chat_history:
+    st.title("💬 Agent Chat")
+
+    for msg in st.session_state.chat_history:
+
         with st.chat_message(
-            message["role"]
+            msg["role"]
         ):
             st.caption(
-                message["time"]
+                msg["time"]
             )
-
             st.write(
-                message["text"]
+                msg["text"]
             )
 
     query = st.chat_input(
-        tr("chat_placeholder")
+        "Ask about farming, irrigation, crops, disease, soil, or costs..."
     )
 
     if query:
+
         st.session_state.chat_history.append(
             {
                 "time": datetime.now().strftime(
@@ -1748,25 +1513,40 @@ def chat_page():
             }
         )
 
-        with st.spinner(
-            tr("agent_thinking")
-        ):
-            answer = call_model(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a practical agricultural AI agent. "
-                            "Be useful, specific and honest about uncertainty."
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": query,
-                    },
-                ],
-                model=REASONING_MODEL
-            )
+        with st.chat_message("user"):
+            st.write(query)
+
+        with st.chat_message("assistant"):
+
+            with st.spinner(
+                "Agent is thinking..."
+            ):
+
+                answer = call_nvidia(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": """
+You are a practical agricultural AI assistant.
+
+Be clear and evidence-based.
+
+Never claim you accessed live weather, market, soil, satellite,
+or sensor data unless it was explicitly provided.
+
+If the user asks for current local information, explain what
+additional data source or verified API is needed.
+""",
+                        },
+                        {
+                            "role": "user",
+                            "content": query,
+                        },
+                    ],
+                    model=REASONING_MODEL,
+                )
+
+            st.write(answer)
 
         st.session_state.chat_history.append(
             {
@@ -1778,113 +1558,79 @@ def chat_page():
             }
         )
 
-        st.rerun()
-
 
 # ============================================================
-# SHOP / DOCTOR PAGE
+# SHOP / DOCTORS PAGE
 # ============================================================
 
-def shop_or_doctors_page(page_type):
-    if page_type == "shop":
-        title = tr("shop_title")
-        actor = "agricultural fertilizer supplier"
+def shop_or_doctors_page(
+    title,
+    actor,
+    lang_text,
+):
 
-    else:
-        title = tr("doctor_title")
-        actor = "agricultural expert"
+    st.title(title)
 
-    st.title(
-        title
+    st.warning(
+        "This version does not use a verified local-business "
+        "search API. Results generated by AI should not be treated "
+        "as real businesses or real contact information."
     )
 
-    col1, col2 = st.columns(2)
+    col_in1, col_in2 = st.columns(2)
 
-    with col1:
+    with col_in1:
         crop = st.text_input(
-            tr("crop_name"),
-            key=f"{page_type}_crop"
+            f"{actor}: Crop name"
         )
 
-    with col2:
+    with col_in2:
         requirement = st.text_input(
-            tr("requirement"),
-            key=f"{page_type}_requirement"
+            f"{actor}: Requirement"
         )
 
-    location = (
-        st.session_state.location
-        or "the specified region"
-    )
+    if st.button(
+        f"Generate {actor} Search Criteria"
+    ):
 
-    col_search, col_nearby = st.columns(2)
+        location = (
+            st.session_state.location
+            or "Location not provided"
+        )
 
-    with col_search:
-        if st.button(
-            tr("search"),
-            key=f"{page_type}_search",
-            use_container_width=True
-        ):
-            with st.spinner(
-                tr("finding_options")
-            ):
-                prompt = f"""
-Recommend useful {actor} options.
+        prompt = f"""
+Create a practical search specification for finding real agricultural
+{actor.lower()} services.
 
+Location: {location}
 Crop: {crop}
 Requirement: {requirement}
-Location: {location}
 
-Do not invent phone numbers or exact addresses.
-If live local data is unavailable, clearly label the answer as general recommendations.
+Do NOT invent businesses, addresses, phone numbers, or prices.
+
+Instead provide:
+1. What type of provider to search for.
+2. Important qualifications.
+3. Questions to ask.
+4. Warning signs.
+5. Search keywords.
 """
 
-                response = call_model(
-                    [
-                        {
-                            "role": "user",
-                            "content": prompt,
-                        }
-                    ],
-                    model=REASONING_MODEL
-                )
-
-                st.write(
-                    response
-                )
-
-    with col_nearby:
-        if st.button(
-            tr("show_nearby"),
-            key=f"{page_type}_nearby",
-            use_container_width=True
+        with st.spinner(
+            "Preparing search criteria..."
         ):
-            with st.spinner(
-                tr("listing_options")
-            ):
-                prompt = f"""
-List general major categories and options for finding a nearby {actor}.
 
-Crop: {crop}
-Location: {location}
+            response = call_nvidia(
+                [
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                model=REASONING_MODEL,
+            )
 
-Do not fabricate real businesses, contacts or addresses.
-Explain how the user should verify local availability.
-"""
-
-                response = call_model(
-                    [
-                        {
-                            "role": "user",
-                            "content": prompt,
-                        }
-                    ],
-                    model=REASONING_MODEL
-                )
-
-                st.write(
-                    response
-                )
+        st.markdown(response)
 
 
 # ============================================================
@@ -1892,42 +1638,55 @@ Explain how the user should verify local availability.
 # ============================================================
 
 def contact_page():
-    st.title(
-        tr("contact_title")
-    )
+
+    st.title("Contact")
 
     st.markdown(
-        f"""
-### {tr('team')}
+        """
+**AI Farm Agent**
 
-**{tr('email')}:** support@example.com
+This application combines plant image analysis,
+agricultural reasoning, and farm-planning workflows.
 
-**{tr('services')}:**
-Vision • Climate • Soil • Water • Market • Execution
+For production deployment, connect verified data sources for:
+
+- Weather
+- Soil sensors
+- Market prices
+- Satellite imagery
+- Local agricultural services
 """
     )
 
 
 # ============================================================
-# REPORTS
+# REPORTS PANEL
 # ============================================================
 
 def show_reports_panel():
+
     st.markdown(
-        f"## {tr('generated_reports')}"
+        "## Generated Reports"
     )
 
     if not st.session_state.reports:
+
         st.info(
-            tr("no_reports")
+            "No reports yet. "
+            "Run analyses from the sidebar."
         )
 
         return
 
-    for report in st.session_state.reports[:12]:
+    for report in (
+        st.session_state.reports[:12]
+    ):
+
         with st.expander(
-            f"{report['time']} — {report['title']}"
+            f"{report['time']} — "
+            f"{report['title']}"
         ):
+
             st.write(
                 report["content"]
             )
@@ -1938,100 +1697,124 @@ def show_reports_panel():
 # ============================================================
 
 def show_cost_report():
-    estimation = (
+
+    est = (
         st.session_state.cost_estimation
     )
 
-    if not estimation:
+    if not est:
         return
 
     st.markdown("---")
 
     st.markdown(
-        f"## {tr('cost_report')}"
+        "## Cost and Profit Estimation Report"
     )
 
     try:
-        data = safe_json_loads(
-            estimation
-        )
+        est_json = extract_json(est)
 
     except Exception:
+
         st.warning(
-            "Could not parse structured estimation."
+            "Could not parse estimation as JSON."
         )
 
-        st.write(
-            estimation
-        )
+        st.write(est)
 
         return
 
+    est_json = translate_result_data(
+        est_json,
+        st.session_state.language,
+    )
+
     st.markdown(
-        f"### {tr('market_price')}"
+        "### Market Price"
     )
 
     st.write(
-        data.get(
+        est_json.get(
             "market_price",
-            "N/A"
+            "N/A",
         )
     )
 
     st.markdown(
-        f"### {tr('price_trend')}"
+        "### Price Trend and Best Months"
     )
 
     st.write(
-        data.get(
+        est_json.get(
             "price_trend",
-            ""
+            "N/A",
         )
     )
 
+    best_months = est_json.get(
+        "best_months",
+        [],
+    )
+
     st.write(
-        f"**{tr('best_months')}:** "
-        f"{', '.join(data.get('best_months', []))}"
+        f"Best months to sell: {best_months}"
     )
 
     st.markdown(
-        f"### {tr('cost_revenue')}"
+        "### Cost and Revenue"
     )
 
-    st.write(
-        f"**{tr('production_cost')}:** "
-        f"{data.get('total_cost', 'N/A')}"
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Total Cost",
+        str(
+            est_json.get(
+                "total_cost",
+                "N/A",
+            )
+        ),
     )
 
-    st.write(
-        f"**{tr('expected_revenue')}:** "
-        f"{data.get('expected_revenue', 'N/A')}"
+    col2.metric(
+        "Expected Revenue",
+        str(
+            est_json.get(
+                "expected_revenue",
+                "N/A",
+            )
+        ),
     )
 
-    st.write(
-        f"**{tr('profit_loss')}:** "
-        f"{data.get('profit_or_loss', 'N/A')}"
+    col3.metric(
+        "Profit / Loss",
+        str(
+            est_json.get(
+                "profit_or_loss",
+                "N/A",
+            )
+        ),
     )
 
     st.markdown(
-        f"### {tr('travel_costs')}"
+        "### Travel Costs"
     )
 
     st.write(
-        data.get(
+        est_json.get(
             "travel_costs",
-            "N/A"
+            "N/A",
         )
     )
 
     st.markdown(
-        f"### {tr('recommendation')}"
+        "### Recommendation"
     )
 
     st.info(
-        data.get(
+        est_json.get(
             "recommendation",
-            ""
+            "No recommendation available.",
         )
     )
 
@@ -2041,106 +1824,102 @@ def show_cost_report():
 # ============================================================
 
 def main():
-    st.set_page_config(
-        page_title=APP_TITLE,
-        layout="wide"
-    )
 
     ensure_session_defaults()
 
-    apply_local_font()
+    apply_local_font(
+        st.session_state.language
+    )
 
-    login_block()
+    lang_text = TRANSLATIONS[
+        st.session_state.language
+    ]
 
-    sidebar_controls()
+    login_block(lang_text)
 
-    apply_local_font()
+    sidebar_controls(lang_text)
 
-    # Run queued tasks after sidebar interaction.
-    run_all_background_tasks()
+    # Run queued tasks
+    if st.session_state.task_queue:
+
+        with st.spinner(
+            "Running queued analyses..."
+        ):
+            run_all_background_tasks()
 
     st.markdown(
-        f"### {tr('agent_status')}: "
+        f"### Agent Status: "
         f"{st.session_state.agent_status}"
     )
 
-    # --------------------------------------------------------
-    # NAVIGATION
-    #
-    # Internal ID:
-    # home / chat / shops / doctors / contact
-    #
-    # Display label:
-    # changes with language
-    #
-    # This is why language switching no longer breaks routing.
-    # --------------------------------------------------------
+    # Navigation
+    menu_items = [
+        lang_text["home"],
+        lang_text["chat"],
+        lang_text["shops"],
+        lang_text["doctors"],
+        lang_text["contact"],
+    ]
 
-    columns = st.columns(
-        len(NAV_ITEMS)
-    )
+    cols = st.columns(5)
 
-    for index, (
-        page_id,
-        translation_key
-    ) in enumerate(NAV_ITEMS):
+    for i, item in enumerate(menu_items):
 
-        with columns[index]:
-            if st.button(
-                tr(translation_key),
-                key=f"nav_{page_id}",
-                use_container_width=True,
-                type=(
-                    "primary"
-                    if st.session_state.menu_choice == page_id
-                    else "secondary"
-                ),
-            ):
-                st.session_state.menu_choice = (
-                    page_id
-                )
+        button_type = (
+            "primary"
+            if st.session_state.menu_choice == item
+            else "secondary"
+        )
 
-                st.rerun()
+        if cols[i].button(
+            item,
+            use_container_width=True,
+            type=button_type,
+        ):
 
-    # --------------------------------------------------------
-    # ROUTING
-    # --------------------------------------------------------
+            st.session_state.menu_choice = item
+            st.rerun()
 
     menu = (
         st.session_state.menu_choice
     )
 
-    if menu == "home":
-        home_page()
+    if menu == lang_text["home"]:
 
-    elif menu == "chat":
+        home_page(lang_text)
+
+    elif menu == lang_text["chat"]:
+
         chat_page()
 
-    elif menu == "shops":
+    elif menu == lang_text["shops"]:
+
         shop_or_doctors_page(
-            "shop"
+            "🛒 Fertilizer & Agriculture Services",
+            "Shop",
+            lang_text,
         )
 
-    elif menu == "doctors":
-        shop_or_doctors_page(
-            "doctor"
-        )
+    elif menu == lang_text["doctors"]:
 
-    elif menu == "contact":
-        contact_page()
+        shop_or_doctors_page(
+            "🩺 Agricultural Experts",
+            "Doctors",
+            lang_text,
+        )
 
     else:
-        st.session_state.menu_choice = "home"
-        st.rerun()
 
-    # --------------------------------------------------------
-    # REPORTS
-    # --------------------------------------------------------
+        contact_page()
 
     show_cost_report()
 
     show_reports_panel()
 
+
+# ============================================================
+# RUN
+# ============================================================
 
 if __name__ == "__main__":
     main()
