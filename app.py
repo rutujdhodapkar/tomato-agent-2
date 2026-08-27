@@ -58,8 +58,8 @@ def get_secret(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
-NVIDIA_API_KEY = get_secret("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")
-SARVAM_API_KEY = get_secret("sk_22eh8r36_QnYnweT7GxKSYa1Iccx7h189")
+NVIDIA_API_KEY = get_secret("NVIDIA_API_KEY")
+SARVAM_API_KEY = get_secret("SARVAM_API_KEY")
 
 
 # ============================================================
