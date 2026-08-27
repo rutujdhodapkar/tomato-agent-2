@@ -18,30 +18,57 @@ from PIL import Image
 # CONFIG
 # ============================================================
 
+def get_secret_or_env(key, default=None):
+    """
+    Safely read a value from Streamlit secrets or environment variables.
+    Does not crash if secrets.toml does not exist.
+    """
+    try:
+        value = st.secrets.get(key, None)
+        if value not in (None, ""):
+            return value
+    except Exception:
+        pass
+
+    value = os.getenv(key)
+
+    if value not in (None, ""):
+        return value
+
+    return default
+
+
 APP_TITLE = "Agri Super Agent"
+
+MODEL_API_KEY = get_secret_or_env("MODEL_API_KEY")
+
+MODEL_API_URL = get_secret_or_env(
+    "MODEL_API_URL",
+    ""
+)
+
+MODEL_NAME = get_secret_or_env(
+    "MODEL_NAME",
+    ""
+)
+
+REASONING_MODEL = get_secret_or_env(
+    "REASONING_MODEL",
+    MODEL_NAME
+)
+
+SARVAM_API_KEY = get_secret_or_env("SARVAM_API_KEY")
+
+SARVAM_TRANSLATE_URL = get_secret_or_env(
+    "SARVAM_TRANSLATE_URL",
+    "https://api.sarvam.ai/translate"
+)
 
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
 
-MAX_RETRIES = 4
+MAX_RETRIES = 5
 REQUEST_TIMEOUT = 120
-
-# Prevent Streamlit from hammering the API with huge queues.
-MAX_TASKS_PER_RUN = 2
-
-# Generic API configuration.
-# Put these in .streamlit/secrets.toml
-API_KEY = st.secrets.get("API_KEY", os.getenv("API_KEY", ""))
-API_URL = st.secrets.get("API_URL", os.getenv("API_URL", ""))
-MODEL = st.secrets.get("MODEL", os.getenv("MODEL", ""))
-VISION_MODEL = st.secrets.get(
-    "VISION_MODEL",
-    os.getenv("VISION_MODEL", MODEL),
-)
-REASONING_MODEL = st.secrets.get(
-    "REASONING_MODEL",
-    os.getenv("REASONING_MODEL", MODEL),
-)
 
 
 # ============================================================
