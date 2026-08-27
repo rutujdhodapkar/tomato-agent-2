@@ -2,9 +2,7 @@ import base64
 import io
 import json
 import os
-import random
 import re
-import time
 from datetime import datetime
 
 import requests
@@ -12,6 +10,7 @@ import streamlit as st
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from PIL import Image
+
 
 # ============================================================
 # CONFIG
@@ -25,6 +24,8 @@ st.set_page_config(
 
 NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
+# Put the model you have ACTUALLY confirmed is available
+# for your NVIDIA API account.
 DEFAULT_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
 VISION_MODEL = DEFAULT_MODEL
 REASONING_MODEL = DEFAULT_MODEL
@@ -33,6 +34,7 @@ SARVAM_TRANSLATE_URL = "https://api.sarvam.ai/translate"
 
 USER_DB = "users.json"
 EXPORT_DIR = "exports"
+
 
 # ============================================================
 # LOAD SECRETS SAFELY
@@ -58,6 +60,7 @@ def get_secret(name: str, default: str = "") -> str:
 
 NVIDIA_API_KEY = get_secret("NVIDIA_API_KEY")
 SARVAM_API_KEY = get_secret("SARVAM_API_KEY")
+
 
 # ============================================================
 # LANGUAGE CONFIG
@@ -122,6 +125,7 @@ LANGUAGE_CODE_MAP = {
     "Hindi": "hi-IN",
     "Marathi": "mr-IN",
 }
+
 
 # ============================================================
 # AGENT ACTIONS
@@ -224,6 +228,7 @@ ACTION_MAP = {
     "Full Agent Pipeline":
         "Build one complete end-to-end agricultural AI agent pipeline using Vision, Climate, Soil, Water, Market, and Execution layers.",
 }
+
 
 # ============================================================
 # SESSION STATE
@@ -364,9 +369,11 @@ def extract_json(text):
     """
     Extract JSON safely from:
     - plain JSON
-    - json code blocks
+    - ```json blocks
+    - ``` blocks
     - surrounding model text
     """
+
     if isinstance(text, dict):
         return text
 
@@ -375,6 +382,7 @@ def extract_json(text):
 
     cleaned = text.strip()
 
+    # Remove markdown code fences
     cleaned = re.sub(
         r"^```(?:json)?\s*",
         "",
@@ -388,11 +396,13 @@ def extract_json(text):
         cleaned
     )
 
+    # First try direct JSON
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
 
+    # Try extracting first JSON object
     start = cleaned.find("{")
     end = cleaned.rfind("}")
 
@@ -404,8 +414,13 @@ def extract_json(text):
 
 
 # ============================================================
-# AI API
+# NVIDIA API
 # ============================================================
+
+import random
+import time
+import requests
+
 
 def call_nvidia(
     messages,
@@ -415,8 +430,8 @@ def call_nvidia(
 ):
     if not NVIDIA_API_KEY:
         return (
-            "Service configuration error. "
-            "Required credentials are missing."
+            "API Configuration Error: NVIDIA_API_KEY is missing. "
+            "Add it to .streamlit/secrets.toml."
         )
 
     headers = {
@@ -451,6 +466,7 @@ def call_nvidia(
             last_error = f"Network Error: {str(e)}"
 
         else:
+            # Success
             if response.status_code == 200:
                 try:
                     data = response.json()
@@ -467,17 +483,20 @@ def call_nvidia(
                         f"{response.text[:1000]}"
                     )
 
+            # Retry only temporary server overloads
             if response.status_code in (429, 500, 502, 503, 504):
+
                 last_error = (
-                    f"Temporary service error "
+                    f"Temporary NVIDIA server error "
                     f"{response.status_code}: "
                     f"{response.text[:500]}"
                 )
 
+            # Do NOT retry auth errors
             elif response.status_code in (401, 403):
                 return (
                     f"Authorization Error {response.status_code}: "
-                    "Access could not be verified."
+                    f"{response.text[:1000]}"
                 )
 
             else:
@@ -486,7 +505,10 @@ def call_nvidia(
                     f"{response.text[:1000]}"
                 )
 
+        # Don't sleep after final attempt
         if attempt < max_retries - 1:
+
+            # 2, 4, 8, 16, 32 seconds + random jitter
             wait_time = min(
                 2 ** (attempt + 1),
                 60
@@ -495,10 +517,9 @@ def call_nvidia(
             time.sleep(wait_time)
 
     return (
-        "AI service is currently unavailable after "
+        "NVIDIA service is currently overloaded after "
         f"{max_retries} attempts. Last error: {last_error}"
     )
-
 
 # ============================================================
 # API TEST
@@ -506,13 +527,14 @@ def call_nvidia(
 
 def test_nvidia_api():
     """
-    Simple authentication and connection test.
+    Simple authentication and model-access test.
     """
+
     result = call_nvidia(
         messages=[
             {
                 "role": "user",
-                "content": "Reply with exactly: Connection successful"
+                "content": "Reply with exactly: NVIDIA API connection successful"
             }
         ],
         model=DEFAULT_MODEL,
@@ -528,14 +550,15 @@ def test_nvidia_api():
 
 def run_reasoning_model(image_bytes, species_info):
     """
-    Sends plant image + farm metadata to the AI service.
+    Sends plant image + farm metadata to NVIDIA.
     Returns parsed JSON dictionary.
     """
+
     if not NVIDIA_API_KEY:
         return {
             "error": (
-                "Service configuration is missing. "
-                "Configure the required credentials first."
+                "NVIDIA_API_KEY is missing. "
+                "Add it to .streamlit/secrets.toml."
             )
         }
 
@@ -561,7 +584,6 @@ Your job:
 7. Assess soil and moisture only from available evidence.
 
 CRITICAL RULES:
-
 - Do NOT pretend you fetched weather, soil reports, satellite data,
   market data, or laboratory tests unless those values were explicitly provided.
 - Clearly label estimates as estimates.
@@ -629,7 +651,7 @@ Required structure:
 
     except requests.exceptions.Timeout:
         return {
-            "error": "AI analysis request timed out."
+            "error": "NVIDIA API request timed out."
         }
 
     except requests.exceptions.RequestException as e:
@@ -640,17 +662,20 @@ Required structure:
     if response.status_code == 401:
         return {
             "error": (
-                "Authentication Error (401): "
-                "Credentials are invalid or expired."
+                "NVIDIA Authentication Error (401): "
+                "API key is invalid or expired."
             )
         }
 
     if response.status_code == 403:
         return {
             "error": (
-                "Authorization Error (403). "
-                "Access to the requested service could not be verified."
-            )
+                "NVIDIA Authorization Error (403). "
+                "The API key is not authorized for this endpoint or model. "
+                f"Model requested: {VISION_MODEL}. "
+                "Create a fresh NVIDIA API key and verify model access."
+            ),
+            "details": response.text[:1000],
         }
 
     if response.status_code != 200:
@@ -664,7 +689,7 @@ Required structure:
 
     except ValueError:
         return {
-            "error": "Service returned invalid JSON.",
+            "error": "API returned invalid JSON.",
             "raw": response.text[:1000],
         }
 
@@ -685,6 +710,7 @@ Required structure:
 
         parsed = extract_json(output_text)
 
+        # Ensure expected fields exist
         defaults = {
             "crop_name": "Unknown",
             "disease_name": "Unknown",
@@ -705,7 +731,7 @@ Required structure:
     except Exception as e:
         return {
             "error": (
-                f"Could not parse AI response: {str(e)}"
+                f"Could not parse model response: {str(e)}"
             ),
             "raw_response": result,
         }
@@ -731,6 +757,7 @@ def run_all_background_tasks():
     Streamlit is synchronous. This is a task queue, not true background
     execution. It runs tasks sequentially during the current app run.
     """
+
     while st.session_state.task_queue:
 
         task = st.session_state.task_queue.pop(0)
@@ -745,7 +772,6 @@ You are an agricultural AI analyst.
 Produce a structured operational report.
 
 Rules:
-
 - Never claim that live web, weather, satellite, market, or sensor data
   was accessed unless the data was actually provided.
 - Explicitly state assumptions.
@@ -879,6 +905,7 @@ def save_users(users):
 
 
 def login_block(lang_text):
+
     if st.session_state.logged_in:
         return
 
@@ -935,22 +962,23 @@ def login_block(lang_text):
 # ============================================================
 
 def sidebar_controls(lang_text):
+
     with st.sidebar:
 
         st.title("🌱 Agent Control Panel")
 
         # -----------------------------
-        # SERVICE STATUS
+        # API STATUS
         # -----------------------------
 
-        st.subheader("Service Status")
+        st.subheader("API Status")
 
         if NVIDIA_API_KEY:
-            st.success("AI service credentials loaded")
+            st.success("NVIDIA API key loaded")
         else:
-            st.error("AI service credentials missing")
+            st.error("NVIDIA API key missing")
 
-        if st.button("Test AI Connection"):
+        if st.button("Test NVIDIA API"):
             with st.spinner("Testing connection..."):
                 result = test_nvidia_api()
 
@@ -1192,6 +1220,7 @@ Return ONLY valid JSON:
 # ============================================================
 
 def home_page(lang_text):
+
     st.title("🌱 Agricultural Super AI Agent")
 
     st.caption(
@@ -1236,14 +1265,15 @@ def home_page(lang_text):
 
             if not NVIDIA_API_KEY:
                 st.error(
-                    "AI service is not configured. "
-                    "Configure the required credentials first."
+                    "NVIDIA_API_KEY is missing. "
+                    "Configure Streamlit secrets first."
                 )
                 return
 
             try:
                 buffer = io.BytesIO()
 
+                # Convert RGBA / PNG safely to JPEG
                 processed_image = image.convert(
                     "RGB"
                 )
@@ -1283,7 +1313,7 @@ def home_page(lang_text):
             }
 
             status.write(
-                "Sending image for AI analysis..."
+                "Sending image to NVIDIA model..."
             )
 
             result = run_reasoning_model(
@@ -1452,6 +1482,7 @@ def home_page(lang_text):
 # ============================================================
 
 def chat_page():
+
     st.title("💬 Agent Chat")
 
     for msg in st.session_state.chat_history:
@@ -1515,7 +1546,7 @@ additional data source or verified API is needed.
                     model=REASONING_MODEL,
                 )
 
-                st.write(answer)
+            st.write(answer)
 
         st.session_state.chat_history.append(
             {
@@ -1537,6 +1568,7 @@ def shop_or_doctors_page(
     actor,
     lang_text,
 ):
+
     st.title(title)
 
     st.warning(
@@ -1577,7 +1609,6 @@ Requirement: {requirement}
 Do NOT invent businesses, addresses, phone numbers, or prices.
 
 Instead provide:
-
 1. What type of provider to search for.
 2. Important qualifications.
 3. Questions to ask.
@@ -1607,6 +1638,7 @@ Instead provide:
 # ============================================================
 
 def contact_page():
+
     st.title("Contact")
 
     st.markdown(
@@ -1632,6 +1664,7 @@ For production deployment, connect verified data sources for:
 # ============================================================
 
 def show_reports_panel():
+
     st.markdown(
         "## Generated Reports"
     )
@@ -1664,6 +1697,7 @@ def show_reports_panel():
 # ============================================================
 
 def show_cost_report():
+
     est = (
         st.session_state.cost_estimation
     )
@@ -1790,6 +1824,7 @@ def show_cost_report():
 # ============================================================
 
 def main():
+
     ensure_session_defaults()
 
     apply_local_font(
