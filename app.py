@@ -417,11 +417,17 @@ def extract_json(text):
 # NVIDIA API
 # ============================================================
 
-def call_nvidia(messages, model=DEFAULT_MODEL, max_tokens=2500):
-    """
-    Standard NVIDIA chat-completions request.
-    """
+import random
+import time
+import requests
 
+
+def call_nvidia(
+    messages,
+    model=DEFAULT_MODEL,
+    max_tokens=2500,
+    max_retries=6,
+):
     if not NVIDIA_API_KEY:
         return (
             "API Configuration Error: NVIDIA_API_KEY is missing. "
@@ -441,71 +447,79 @@ def call_nvidia(messages, model=DEFAULT_MODEL, max_tokens=2500):
         "max_tokens": max_tokens,
     }
 
-    try:
-        response = requests.post(
-            NVIDIA_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=120,
-        )
+    last_error = ""
 
-    except requests.exceptions.Timeout:
-        return "Network Error: NVIDIA API request timed out."
+    for attempt in range(max_retries):
 
-    except requests.exceptions.RequestException as e:
-        return f"Network Error: {str(e)}"
+        try:
+            response = requests.post(
+                NVIDIA_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=180,
+            )
 
-    if response.status_code == 401:
-        return (
-            "NVIDIA Authentication Error (401): "
-            "Your API key is invalid or expired."
-        )
+        except requests.exceptions.Timeout:
+            last_error = "Request timed out."
 
-    if response.status_code == 403:
-        return (
-            "NVIDIA Authorization Error (403): "
-            "Your API key was accepted by the server but is not authorized "
-            "for this resource/model. Generate a fresh key and verify that "
-            f"your account has access to model '{model}'. "
-            f"Server response: {response.text}"
-        )
+        except requests.exceptions.RequestException as e:
+            last_error = f"Network Error: {str(e)}"
 
-    if response.status_code != 200:
-        return (
-            f"HTTP Error {response.status_code}: "
-            f"{response.text[:1000]}"
-        )
-
-    try:
-        data = response.json()
-
-    except ValueError:
-        return (
-            "API returned a non-JSON response: "
-            f"{response.text[:1000]}"
-        )
-
-    if "error" in data:
-        error = data["error"]
-
-        if isinstance(error, dict):
-            message = error.get("message", str(error))
         else:
-            message = str(error)
+            # Success
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    return data["choices"][0]["message"]["content"]
 
-        return f"NVIDIA API Error: {message}"
+                except (
+                    ValueError,
+                    KeyError,
+                    IndexError,
+                    TypeError,
+                ):
+                    return (
+                        "Unexpected successful response: "
+                        f"{response.text[:1000]}"
+                    )
 
-    try:
-        content = data["choices"][0]["message"]["content"]
+            # Retry only temporary server overloads
+            if response.status_code in (429, 500, 502, 503, 504):
 
-        if not content:
-            return "NVIDIA API returned an empty response."
+                last_error = (
+                    f"Temporary NVIDIA server error "
+                    f"{response.status_code}: "
+                    f"{response.text[:500]}"
+                )
 
-        return content
+            # Do NOT retry auth errors
+            elif response.status_code in (401, 403):
+                return (
+                    f"Authorization Error {response.status_code}: "
+                    f"{response.text[:1000]}"
+                )
 
-    except (KeyError, IndexError, TypeError):
-        return f"Unexpected NVIDIA response format: {data}"
+            else:
+                return (
+                    f"HTTP Error {response.status_code}: "
+                    f"{response.text[:1000]}"
+                )
 
+        # Don't sleep after final attempt
+        if attempt < max_retries - 1:
+
+            # 2, 4, 8, 16, 32 seconds + random jitter
+            wait_time = min(
+                2 ** (attempt + 1),
+                60
+            ) + random.uniform(0, 1.5)
+
+            time.sleep(wait_time)
+
+    return (
+        "NVIDIA service is currently overloaded after "
+        f"{max_retries} attempts. Last error: {last_error}"
+    )
 
 # ============================================================
 # API TEST
