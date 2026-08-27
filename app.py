@@ -971,27 +971,7 @@ def sidebar_controls(lang_text):
         # API STATUS
         # -----------------------------
 
-        st.subheader("API Status")
 
-        if NVIDIA_API_KEY:
-            st.success("NVIDIA API key loaded")
-        else:
-            st.error("NVIDIA API key missing")
-
-        if st.button("Test NVIDIA API"):
-            with st.spinner("Testing connection..."):
-                result = test_nvidia_api()
-
-            if (
-                "Error" in result
-                or "403" in result
-                or "401" in result
-            ):
-                st.error(result)
-            else:
-                st.success(result)
-
-        st.markdown("---")
 
         # -----------------------------
         # LANGUAGE
@@ -1313,7 +1293,7 @@ def home_page(lang_text):
             }
 
             status.write(
-                "Sending image to NVIDIA model..."
+                "Sending image to model..."
             )
 
             result = run_reasoning_model(
